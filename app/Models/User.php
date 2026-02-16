@@ -19,12 +19,12 @@ class User extends Authenticatable
      */
 
     public const ROLE_PARENT = 'parent';
-    public const ROLE_CHILD = 'child';
+    public const ROLE_CHILD = 'enfant';
     protected $fillable = [
         'name',
         'email',
         'password',
-        'role',
+        'must_change_password',
     ];
 
     /**
@@ -47,16 +47,8 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'must_change_password' => 'boolean',
         ];
-    }
-
-    public function isParent(): bool
-    {
-        return $this->role === self::ROLE_PARENT;
-    }
-    public function isChild(): bool
-    {
-        return $this->role === self::ROLE_CHILD;
     }
 
     public function households()
@@ -64,5 +56,36 @@ class User extends Authenticatable
         return $this->belongsToMany(Household::class)
             ->withPivot('role', 'nickname')
             ->withTimestamps();
+    }
+
+    public function taskInstances()
+    {
+        return $this->hasMany(TaskInstance::class);
+    }
+
+    public function budgetSettings()
+    {
+        return $this->hasOne(BudgetSetting::class);
+    }
+
+    public function pocketMoneyTransactions()
+    {
+        return $this->hasMany(PocketMoneyTransaction::class);
+    }
+
+    public function getPocketMoneyTransaction()
+    {
+        return $this->pocketMoneyTransactions()
+            ->where('status', 'approved')
+            ->sum('amount');
+    }
+
+    public function createdEvents() {
+        return $this->hasMany(Event::class, 'created_by_user_id');
+    }
+
+    public function mealPollVotes()
+    {
+        return $this->hasMany(MealPollVote::class);
     }
 }

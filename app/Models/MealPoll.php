@@ -20,7 +20,7 @@ class MealPoll extends Model
 
     public function options()
     {
-        return $this->belongsToMany(Recipe::class, 'meal_poll_options');
+        return $this->hasMany(MealPollOption::class);
     }
 
     public function votes()

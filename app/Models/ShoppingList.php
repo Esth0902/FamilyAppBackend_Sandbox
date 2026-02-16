@@ -6,11 +6,20 @@ use Illuminate\Database\Eloquent\Model;
 
 class ShoppingList extends Model
 {
-    protected $fillable = ['household_id', 'meal_poll_id'];
+    protected $fillable = [
+        'household_id',
+        'title',
+        'status'
+    ];
 
-    public function items()
-    {
+
+
+    public function shoppingListItems() {
         return $this->hasMany(ShoppingListItem::class);
+    }
+
+    public function household() {
+        return $this->belongsTo(Household::class);
     }
 
 }

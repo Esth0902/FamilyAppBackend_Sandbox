@@ -1,3 +1,8 @@
+### Variables
+
+@baseUrl = http://localhost:8000
+@contentType = application/json
+
 ### Inscription d'un nouvel utilisateur + Capture du token
 POST http://localhost:8000/api/register
 Content-Type: application/json
@@ -11,18 +16,22 @@ Accept: application/json
 }
 
 > {%
-    client.global.set("auth_token", response.body.token);
-    client.log("Token d'inscription capturé : " + response.body.token);
+    if (response.status === 200 || response.status === 201) {
+        client.global.set("auth_token", response.body.token);
+        client.log("Token d'inscription capturé : " + response.body.token);
+    } else {
+        client.log("Register status: " + response.status);
+    }
 %}
 
 ### Test de login
-POST http://localhost:8000/api/login
-Content-Type: application/json
-Accept: application/json
+POST {{baseUrl}}/api/login
+Content-Type: {{contentType}}
+Accept: {{contentType}}
 
 {
-    "email": "user@test.com",
-    "password": "password123"
+  "email": "user@test.com",
+  "password": "password123"
 }
 
 > {%
@@ -30,115 +39,169 @@ Accept: application/json
     client.log("Token capturé : " + response.body.token);
 %}
 
-### Créer un ménage pour l'utilisateur test
-POST http://localhost:8000/api/households
-Content-Type: application/json
+### Créer un ménage (capture household_id)
+POST {{baseUrl}}/api/households
+Content-Type: {{contentType}}
+Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
 {
-    "name": "Ma Famille Test"
-}
-
-#### Test de génération de menu (Cas standard)
-#POST http://localhost:8000/api/menu/generate
-#Content-Type: application/json
-#Accept: application/json
-#Authorization: Bearer {{auth_token}}
-#
-#{
-#    "nb_repas": 3,
-#    "preferences": "Végétarien, budget étudiant, j'aime les pâtes"
-#}
-#
-#### Test de génération de menu (Cas gros volume > 7 repas)
-#POST http://localhost:8000/api/menu/generate
-#Content-Type: application/json
-#Accept: application/json
-#Authorization: Bearer {{auth_token}}
-#
-#{
-#    "nb_repas": 10,
-#    "preferences": "Sans gluten"
-#}
-
-
-### 1. Demander des idées à l'IA
-POST http://localhost:8000/api/recipes/suggest
-Content-Type: application/json
-Authorization: Bearer {{auth_token}}
-
-{
-    "preferences": "Végétarien, cuisine italienne",
-    "count": 3
-}
-
-
-### Étape 2 : Prévisualiser une recette spécifique (Preview)
-# Prend un titre du test précédent (ex: "Lasagnes aux légumes")
-POST http://localhost:8000/api/recipes/preview-ai
-Content-Type: application/json
-Authorization: Bearer {{auth_token}}
-
-{
-    "title": "Lasagnes aux légumes"
-}
-
-### Étape 3 : Valider et enregistrer en DB
-# Copiez ici l'objet complet reçu dans la preview
-POST http://localhost:8000/api/recipes/ai-store
-Content-Type: application/json
-Accept: application/json
-Authorization: Bearer {{auth_token}}
-
-{
-    "household_id": 1,
-    "title": "Lasagnes aux légumes",
-    "description": "Un plat italien classique revisité avec des légumes pour une version végétarienne délicieuse et équilibrée",
-    "instructions": "Étape 1 : Préchauffez le four à 180°C. Étape 2 : Faites cuire les pâtes à lasagnes selon les instructions du paquet. Étape 3 : Faites revenir les oignons et les poivrons jusqu'à ce qu'ils soient tendres. Étape 4 : Ajoutez les courgettes, les tomates concassées, le basilic, l'origan, le sel et le poivre, et laissez mijoter pendant 20 minutes. Étape 5 : Mélangez la ricotta avec l'œuf et le parmesan râpé. Étape 6 : Alternez les couches de pâtes, de sauce aux légumes et de ricotta dans un plat à lasagnes. Étape 7 : Enfournez 30 à 40 minutes.",
-    "ingredients": [
-        { "name": "pâtes à lasagnes", "quantity": 250, "unit": "g" },
-        { "name": "oignon", "quantity": 1, "unit": "unité" },
-        { "name": "poivron", "quantity": 2, "unit": "unités" },
-        { "name": "courgette", "quantity": 1, "unit": "unité" },
-        { "name": "tomates concassées", "quantity": 400, "unit": "g" },
-        { "name": "basilic", "quantity": 0, "unit": "au goût" },
-        { "name": "origan", "quantity": 0, "unit": "au goût" },
-        { "name": "sel", "quantity": 0, "unit": "au goût" },
-        { "name": "poivre", "quantity": 0, "unit": "au goût" },
-        { "name": "ricotta", "quantity": 300, "unit": "g" },
-        { "name": "œuf", "quantity": 1, "unit": "unité" },
-        { "name": "parmesan râpé", "quantity": 150, "unit": "g" },
-        { "name": "fromage râpé", "quantity": 100, "unit": "g" }
-    ]
+  "name": "Ma Famille Test"
 }
 
 > {%
-    client.global.set("recipe_id", response.body.id);
+    const hid = response.body.id ?? response.body.data?.id;
+    client.global.set("household_id", hid);
+    client.log("household_id capturé : " + hid);
+%}
+### 4) Demander des idées à l'IA (intent=ideas)
+POST {{baseUrl}}/api/recipes/suggest
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "preferences": "Végétarien, cuisine italienne",
+  "count": 3,
+  "intent": "ideas"
+}
+
+### 5) Demander une recette spécifique à l'IA (intent=specific)
+POST {{baseUrl}}/api/recipes/suggest
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "preferences": "Lasagnes aux légumes",
+  "intent": "specific"
+}
+
+### 6) Preview recette (endpoint dédié)
+POST {{baseUrl}}/api/recipes/preview-ai
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "title": "Lasagnes aux légumes"
+}
+
+### 7) AI Store (exemple valide AVEC type + category)
+# IMPORTANT:
+# - type doit être: petit-déjeuner, entrée, plat principal, dessert, collation, boisson, autre
+# - category doit être: fruits et légumes, boucherie, poissonnerie, crèmerie, épicerie salée, épicerie sucrée, boissons, surgelés, entretien et hygiène, autre
+POST {{baseUrl}}/api/recipes/ai-store
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "household_id": 3,
+  "title": "Lasagnes aux légumes",
+  "type": "plat principal",
+  "description": "Un plat italien classique revisité avec des légumes pour une version végétarienne délicieuse.",
+  "instructions": "Étape 1 : Préchauffez le four à 180°C. Étape 2 : ...",
+  "ingredients": [
+    { "name": "pâtes à lasagnes", "quantity": 250, "unit": "g", "category": "épicerie salée" },
+    { "name": "oignon", "quantity": 1, "unit": "unité", "category": "fruits et légumes" },
+    { "name": "poivron", "quantity": 1, "unit": "unité", "category": "fruits et légumes" },
+    { "name": "courgette", "quantity": 1, "unit": "unité", "category": "fruits et légumes" },
+    { "name": "tomates concassées", "quantity": 400, "unit": "g", "category": "épicerie salée" },
+    { "name": "ricotta", "quantity": 200, "unit": "g", "category": "crèmerie" },
+    { "name": "parmesan râpé", "quantity": 40, "unit": "g", "category": "crèmerie" },
+    { "name": "sel", "quantity": 0, "unit": "au goût", "category": "autre" }
+  ]
+}
+
+> {%
+    const rid = response.body.id ?? response.body.data?.id;
+    client.global.set("recipe_id", rid);
+    client.log("recipe_id capturé : " + rid);
 %}
 
-### 3. Créer le sondage (Poll)
-# Utilisez les IDs des recettes créées
-POST http://localhost:8000/api/meal-polls
-Content-Type: application/json
-Accept: application/json
+### 8) Vérifier la liste des recettes (doit contenir la recette AI)
+GET {{baseUrl}}/api/recipes
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+### 9) Récupérer la recette créée
+GET {{baseUrl}}/api/recipes/{{recipe_id}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+### 10) Test NEGATIF: type invalide -> doit renvoyer 422
+POST {{baseUrl}}/api/recipes/ai-store
+Content-Type: {{contentType}}
+Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
 {
-    "household_id": 1,
-    "recipe_ids": [1, 2],
-    "duration_hours": 24
+  "household_id": 3,
+  "title": "Test mauvais type",
+  "type": "plat",
+  "description": "test",
+  "instructions": "test",
+  "ingredients": [
+    { "name": "oignon", "quantity": 1, "unit": "unité", "category": "fruits et légumes" }
+  ]
 }
 
-### 4. Voter pour une recette
-POST http://localhost:8000/api/meal-polls/1/vote
-Content-Type: application/json
-Accept: application/json
+### 11) Test NEGATIF: category invalide -> doit renvoyer 422
+POST {{baseUrl}}/api/recipes/ai-store
+Content-Type: {{contentType}}
+Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
 {
-    "recipe_id": 3
+  "household_id": 3,
+  "title": "Test mauvaise catégorie",
+  "type": "plat principal",
+  "description": "test",
+  "instructions": "test",
+  "ingredients": [
+    { "name": "oignon", "quantity": 1, "unit": "unité", "category": "frais" }
+  ]
 }
 
-### 5. Clôturer et générer la liste de courses
-POST http://localhost:8000/api/meal-polls/1/validate
+### 12) Test pivot unique: doublon ingrédient (ne doit PAS casser si tu utilises sync)
+# Si ton controller est encore en attach(), ça risque 500.
+POST {{baseUrl}}/api/recipes/ai-store
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "household_id": 3,
+  "title": "Test doublons",
+  "type": "plat principal",
+  "description": "test",
+  "instructions": "test",
+  "ingredients": [
+    { "name": "oignon", "quantity": 1, "unit": "unité", "category": "fruits et légumes" },
+    { "name": "oignon", "quantity": 2, "unit": "unité", "category": "fruits et légumes" }
+  ]
+}
+
+### 13) Update recette (si tu veux tester update)
+PUT {{baseUrl}}/api/recipes/1
+#{{recipe_id}}
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "title": "Lasagnes aux légumes (update)",
+  "type": "plat principal",
+  "description": "update",
+  "instructions": "update",
+  "ingredients": [
+    { "name": "oignon", "quantity": 1, "unit": "unité", "category": "fruits et légumes" },
+    { "name": "ricotta", "quantity": 250, "unit": "g", "category": "crèmerie" }
+  ]
+}
+
+### 14) Delete recette (cleanup)
+DELETE {{baseUrl}}/api/recipes/3
+Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}

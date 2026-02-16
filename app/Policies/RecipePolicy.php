@@ -7,44 +7,44 @@ use App\Models\User;
 
 class RecipePolicy
 {
-    private function pivotRole(User $user, int $householdID): ?string
+    private function getHouseholdRole(User $user, int $householdId): ?string
     {
-        $household = $user->households()->where('households.id', $householdID)->first();
-        return $household ? $household->pivot->role : null;
+        return $user->households()
+            ->whereKey($householdId)
+            ->value('household_user.role');
     }
 
-    private function isHouseholdAdmin(User $user, int $householdID): bool
+    public function viewAny(User $user): bool
     {
-        return $this->pivotRole($user, $householdID) === 'admin';
+        return $user->households()->exists();
     }
-
-    private function isHouseholdMember(User $user, int $householdID): bool
-    {
-        return !is_null($this->pivotRole($user, $householdID));
-    }
-
-    public function viewAny(User $user, int $householdID): bool
-    {
-        return $this->isHouseholdMember($user, $householdID);
-    }
-
     public function view(User $user, Recipe $recipe): bool
     {
-        return $this->isHouseholdMember($user, $recipe->household_id);
+        return $this->getHouseholdRole($user, $recipe->household_id) !== null;
     }
 
-    public function create(User $user, int $householdID): bool
+    public function create(User $user, int $householdId): bool
     {
-        return $this->isHouseholdAdmin($user, $householdID);
+        return $this->getHouseholdRole($user, $householdId) !== null;
     }
 
     public function update(User $user, Recipe $recipe): bool
     {
-        return $this->isHouseholdAdmin($user, $recipe->household_id);
+        return $this->getHouseholdRole($user, $recipe->household_id) === 'parent';
     }
 
     public function delete(User $user, Recipe $recipe): bool
     {
-        return $this->isHouseholdAdmin($user, $recipe->household_id);
+        return $this->getHouseholdRole($user, $recipe->household_id) === 'parent';
+    }
+
+    public function restore(User $user, Recipe $recipe): bool
+    {
+        return $this->delete($user, $recipe);
+    }
+
+    public function forceDelete(User $user, Recipe $recipe): bool
+    {
+        return $this->delete($user, $recipe);
     }
 }

@@ -14,6 +14,7 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
 
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/register', [AuthController::class, 'register']);
+Route::get('/dashboard', [HouseholdController::class, 'dashboard']);
 
 Route::middleware(['auth:sanctum', 'throttle:10,1'])->group(function () {
 
@@ -23,13 +24,15 @@ Route::middleware(['auth:sanctum', 'throttle:10,1'])->group(function () {
 
     // Households
     Route::post('/households', [HouseholdController::class, 'store']);
-    Route::post('/households/{id}', [HouseholdController::class, 'createInvitation']);
-    Route::post('/households/join', [HouseholdController::class, 'join']);
+    Route::post('/household/members', [HouseholdController::class, 'addMember']);
+    Route::get('/dashboard', [HouseholdController::class, 'dashboard']);
 
     // Recipes - IA (custom endpoints)
-    Route::post('/recipes/suggest', [RecipeController::class, 'suggestIdeas']);
-    Route::post('/recipes/preview-ai', [RecipeController::class, 'previewAiRecipe']);
-    Route::post('/recipes/ai-store', [RecipeController::class, 'finalizeAiStore']);
+    Route::middleware('throttle:ai')->group(function () {
+        Route::post('/recipes/suggest', [RecipeController::class, 'suggestIdeas']);
+        Route::post('/recipes/preview-ai', [RecipeController::class, 'previewAiRecipe']);
+        Route::post('/recipes/ai-store', [RecipeController::class, 'finalizeAiStore']);
+    });
 
     // Recipes - CRUD (standard REST)
     Route::apiResource('recipes', RecipeController::class);
