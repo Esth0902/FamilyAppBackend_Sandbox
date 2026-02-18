@@ -1,4 +1,4 @@
-### Variables
+﻿### Variables
 
 @baseUrl = http://localhost:8000
 @contentType = application/json
@@ -18,7 +18,7 @@ Accept: application/json
 > {%
     if (response.status === 200 || response.status === 201) {
         client.global.set("auth_token", response.body.token);
-        client.log("Token d'inscription capturé : " + response.body.token);
+        client.log("Token d'inscription capturÃ© : " + response.body.token);
     } else {
         client.log("Register status: " + response.status);
     }
@@ -36,10 +36,66 @@ Accept: {{contentType}}
 
 > {%
     client.global.set("auth_token", response.body.token);
-    client.log("Token capturé : " + response.body.token);
+    client.log("Token capturÃ© : " + response.body.token);
 %}
 
-### Créer un ménage (capture household_id)
+### Changement initial obligatoire (must_change_password=true)
+POST {{baseUrl}}/api/auth/change-initial-credentials
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "email": "nouveau.email@test.com",
+  "password": "NouveauPass123!",
+  "password_confirmation": "NouveauPass123!"
+}
+
+### Mot de passe oublie (API mobile)
+POST {{baseUrl}}/api/auth/forgot-password
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+
+{
+  "email": "user@test.com"
+}
+
+### Reinitialiser le mot de passe via token
+POST {{baseUrl}}/api/auth/reset-password
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+
+{
+  "token": "TOKEN_RECU_PAR_EMAIL",
+  "email": "user@test.com",
+  "password": "MotDePasseNeuf123!",
+  "password_confirmation": "MotDePasseNeuf123!"
+}
+
+### Mise a jour profil utilisateur (email + password)
+PATCH {{baseUrl}}/api/auth/profile
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "email": "profile.update@test.com",
+  "current_password": "NouveauPass123!",
+  "password": "EncorePlusFort123!",
+  "password_confirmation": "EncorePlusFort123!"
+}
+
+### Mise a jour du pseudo utilisateur sur un foyer (necessite {{household_id}} existant)
+PATCH {{baseUrl}}/api/auth/households/{{household_id}}/nickname
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "nickname": "Papa Maison A"
+}
+
+### CrÃ©er un mÃ©nage (capture household_id)
 POST {{baseUrl}}/api/households
 Content-Type: {{contentType}}
 Accept: {{contentType}}
@@ -52,45 +108,45 @@ Authorization: Bearer {{auth_token}}
 > {%
     const hid = response.body.id ?? response.body.data?.id;
     client.global.set("household_id", hid);
-    client.log("household_id capturé : " + hid);
+    client.log("household_id capturÃ© : " + hid);
 %}
-### 4) Demander des idées à l'IA (intent=ideas)
+### 4) Demander des idÃ©es Ã  l'IA (intent=ideas)
 POST {{baseUrl}}/api/recipes/suggest
 Content-Type: {{contentType}}
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
 {
-  "preferences": "Végétarien, cuisine italienne",
+  "preferences": "VÃ©gÃ©tarien, cuisine italienne",
   "count": 3,
   "intent": "ideas"
 }
 
-### 5) Demander une recette spécifique à l'IA (intent=specific)
+### 5) Demander une recette spÃ©cifique Ã  l'IA (intent=specific)
 POST {{baseUrl}}/api/recipes/suggest
 Content-Type: {{contentType}}
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
 {
-  "preferences": "Lasagnes aux légumes",
+  "preferences": "Lasagnes aux lÃ©gumes",
   "intent": "specific"
 }
 
-### 6) Preview recette (endpoint dédié)
+### 6) Preview recette (endpoint dÃ©diÃ©)
 POST {{baseUrl}}/api/recipes/preview-ai
 Content-Type: {{contentType}}
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
 {
-  "title": "Lasagnes aux légumes"
+  "title": "Lasagnes aux lÃ©gumes"
 }
 
 ### 7) AI Store (exemple valide AVEC type + category)
 # IMPORTANT:
-# - type doit être: petit-déjeuner, entrée, plat principal, dessert, collation, boisson, autre
-# - category doit être: fruits et légumes, boucherie, poissonnerie, crèmerie, épicerie salée, épicerie sucrée, boissons, surgelés, entretien et hygiène, autre
+# - type doit Ãªtre: petit-dÃ©jeuner, entrÃ©e, plat principal, dessert, collation, boisson, autre
+# - category doit Ãªtre: fruits et lÃ©gumes, boucherie, poissonnerie, crÃ¨merie, Ã©picerie salÃ©e, Ã©picerie sucrÃ©e, boissons, surgelÃ©s, entretien et hygiÃ¨ne, autre
 POST {{baseUrl}}/api/recipes/ai-store
 Content-Type: {{contentType}}
 Accept: {{contentType}}
@@ -98,35 +154,40 @@ Authorization: Bearer {{auth_token}}
 
 {
   "household_id": 3,
-  "title": "Lasagnes aux légumes",
+  "title": "Lasagnes aux lÃ©gumes",
   "type": "plat principal",
-  "description": "Un plat italien classique revisité avec des légumes pour une version végétarienne délicieuse.",
-  "instructions": "Étape 1 : Préchauffez le four à 180°C. Étape 2 : ...",
+  "description": "Un plat italien classique revisitÃ© avec des lÃ©gumes pour une version vÃ©gÃ©tarienne dÃ©licieuse.",
+  "instructions": "Ã‰tape 1 : PrÃ©chauffez le four Ã  180Â°C. Ã‰tape 2 : ...",
   "ingredients": [
-    { "name": "pâtes à lasagnes", "quantity": 250, "unit": "g", "category": "épicerie salée" },
-    { "name": "oignon", "quantity": 1, "unit": "unité", "category": "fruits et légumes" },
-    { "name": "poivron", "quantity": 1, "unit": "unité", "category": "fruits et légumes" },
-    { "name": "courgette", "quantity": 1, "unit": "unité", "category": "fruits et légumes" },
-    { "name": "tomates concassées", "quantity": 400, "unit": "g", "category": "épicerie salée" },
-    { "name": "ricotta", "quantity": 200, "unit": "g", "category": "crèmerie" },
-    { "name": "parmesan râpé", "quantity": 40, "unit": "g", "category": "crèmerie" },
-    { "name": "sel", "quantity": 0, "unit": "au goût", "category": "autre" }
+    { "name": "pÃ¢tes Ã  lasagnes", "quantity": 250, "unit": "g", "category": "Ã©picerie salÃ©e" },
+    { "name": "oignon", "quantity": 1, "unit": "unitÃ©", "category": "fruits et lÃ©gumes" },
+    { "name": "poivron", "quantity": 1, "unit": "unitÃ©", "category": "fruits et lÃ©gumes" },
+    { "name": "courgette", "quantity": 1, "unit": "unitÃ©", "category": "fruits et lÃ©gumes" },
+    { "name": "tomates concassÃ©es", "quantity": 400, "unit": "g", "category": "Ã©picerie salÃ©e" },
+    { "name": "ricotta", "quantity": 200, "unit": "g", "category": "crÃ¨merie" },
+    { "name": "parmesan rÃ¢pÃ©", "quantity": 40, "unit": "g", "category": "crÃ¨merie" },
+    { "name": "sel", "quantity": 0, "unit": "au goÃ»t", "category": "autre" }
   ]
 }
 
 > {%
     const rid = response.body.id ?? response.body.data?.id;
     client.global.set("recipe_id", rid);
-    client.log("recipe_id capturé : " + rid);
+    client.log("recipe_id capturÃ© : " + rid);
 %}
 
-### 8) Vérifier la liste des recettes (doit contenir la recette AI)
+### 8) VÃ©rifier la liste des recettes (doit contenir la recette AI)
 GET {{baseUrl}}/api/recipes
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
-### 9) Récupérer la recette créée
+### 9) RÃ©cupÃ©rer la recette crÃ©Ã©e
 GET {{baseUrl}}/api/recipes/{{recipe_id}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+### 9b) Recupérer la recette avec portions ciblees (scaling)
+GET {{baseUrl}}/api/recipes/{{recipe_id}}?servings=4
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
@@ -143,7 +204,7 @@ Authorization: Bearer {{auth_token}}
   "description": "test",
   "instructions": "test",
   "ingredients": [
-    { "name": "oignon", "quantity": 1, "unit": "unité", "category": "fruits et légumes" }
+    { "name": "oignon", "quantity": 1, "unit": "unitÃ©", "category": "fruits et lÃ©gumes" }
   ]
 }
 
@@ -155,17 +216,17 @@ Authorization: Bearer {{auth_token}}
 
 {
   "household_id": 3,
-  "title": "Test mauvaise catégorie",
+  "title": "Test mauvaise catÃ©gorie",
   "type": "plat principal",
   "description": "test",
   "instructions": "test",
   "ingredients": [
-    { "name": "oignon", "quantity": 1, "unit": "unité", "category": "frais" }
+    { "name": "oignon", "quantity": 1, "unit": "unitÃ©", "category": "frais" }
   ]
 }
 
-### 12) Test pivot unique: doublon ingrédient (ne doit PAS casser si tu utilises sync)
-# Si ton controller est encore en attach(), ça risque 500.
+### 12) Test pivot unique: doublon ingrÃ©dient (ne doit PAS casser si tu utilises sync)
+# Si ton controller est encore en attach(), Ã§a risque 500.
 POST {{baseUrl}}/api/recipes/ai-store
 Content-Type: {{contentType}}
 Accept: {{contentType}}
@@ -178,8 +239,8 @@ Authorization: Bearer {{auth_token}}
   "description": "test",
   "instructions": "test",
   "ingredients": [
-    { "name": "oignon", "quantity": 1, "unit": "unité", "category": "fruits et légumes" },
-    { "name": "oignon", "quantity": 2, "unit": "unité", "category": "fruits et légumes" }
+    { "name": "oignon", "quantity": 1, "unit": "unitÃ©", "category": "fruits et lÃ©gumes" },
+    { "name": "oignon", "quantity": 2, "unit": "unitÃ©", "category": "fruits et lÃ©gumes" }
   ]
 }
 
@@ -191,13 +252,14 @@ Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
 {
-  "title": "Lasagnes aux légumes (update)",
+  "title": "Lasagnes aux lÃ©gumes (update)",
   "type": "plat principal",
+  "base_servings": 4,
   "description": "update",
   "instructions": "update",
   "ingredients": [
-    { "name": "oignon", "quantity": 1, "unit": "unité", "category": "fruits et légumes" },
-    { "name": "ricotta", "quantity": 250, "unit": "g", "category": "crèmerie" }
+    { "name": "oignon", "quantity": 1, "unit": "unitÃ©", "category": "fruits et lÃ©gumes" },
+    { "name": "ricotta", "quantity": 250, "unit": "g", "category": "crÃ¨merie" }
   ]
 }
 
@@ -205,3 +267,375 @@ Authorization: Bearer {{auth_token}}
 DELETE {{baseUrl}}/api/recipes/3
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
+
+### Setup initial V2 (foyer + membres + modules)
+POST {{baseUrl}}/api/households
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "household_name": "Ma Famille Test V2",
+  "members": [
+    {
+      "name": "Deuxieme Parent",
+      "role": "parent"
+    },
+    {
+      "name": "Enfant Test",
+      "role": "enfant",
+      "budget": {
+        "base_amount": 20,
+        "recurrence": "weekly",
+        "reset_day": 1,
+        "allow_advances": true,
+        "max_advance_amount": 10
+      }
+    }
+  ],
+  "modules": {
+    "meals": {
+      "enabled": true,
+      "options": {
+        "recipes": true,
+        "polls": true,
+        "shopping_list": true
+      },
+      "settings": {
+        "poll_day": 5,
+        "poll_time": "10:00",
+        "poll_duration": 24,
+        "default_servings": 4,
+        "dietary_tags": ["vegetarian", "no-pork"]
+      }
+    },
+    "tasks": {
+      "enabled": true,
+      "settings": {
+        "reminders_enabled": true,
+        "templates": [
+          {
+            "name": "Sortir les poubelles",
+            "description": "Bac noir et PMC",
+            "recurrence": "weekly",
+            "is_rotation": false
+          },
+          {
+            "name": "Ranger la chambre",
+            "recurrence": "daily",
+            "is_rotation": false
+          }
+        ]
+      }
+    },
+    "calendar": {
+      "enabled": true,
+      "settings": {
+        "shared_view_enabled": true
+      }
+    },
+    "budget": {
+      "enabled": true,
+      "settings": {
+        "currency": "EUR"
+      }
+    }
+  }
+}
+
+> {%
+    const hid = response.body.household?.id ?? response.body.id ?? response.body.data?.id;
+    client.global.set("household_id", hid);
+    client.log("household_id V2 capture : " + hid);
+%}
+
+### Lire la configuration du foyer courant
+GET {{baseUrl}}/api/households/config
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+### Lister les dietary tags disponibles (systeme + foyer courant)
+GET {{baseUrl}}/api/households/dietary-tags
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+### Rechercher des dietary tags
+GET {{baseUrl}}/api/households/dietary-tags?q=lactose
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+### Lister les dietary tags d'une categorie
+GET {{baseUrl}}/api/households/dietary-tags?type=diet
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+### Creer un nouveau dietary tag (avec anti-doublon embedding)
+POST {{baseUrl}}/api/households/dietary-tags
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "label": "Sans four",
+  "type": "restriction"
+}
+
+### Mettre a jour la configuration du foyer courant
+PATCH {{baseUrl}}/api/households/config
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "household_name": "Ma Famille Test V2 - Modifiee",
+  "modules": {
+    "meals": {
+      "enabled": true,
+      "options": {
+        "recipes": true,
+        "polls": true,
+        "shopping_list": false
+      },
+      "settings": {
+        "poll_day": 6,
+        "poll_time": "11:00",
+        "poll_duration": 24,
+        "default_servings": 5,
+        "dietary_tags": ["lactose-free", "no-shellfish"]
+      }
+    },
+    "tasks": {
+      "enabled": true,
+      "settings": {
+        "reminders_enabled": true,
+        "templates": [
+          {
+            "name": "Passer l'aspirateur",
+            "recurrence": "weekly",
+            "is_rotation": false
+          }
+        ]
+      }
+    },
+    "calendar": {
+      "enabled": true,
+      "settings": {
+        "shared_view_enabled": true,
+        "absence_tracking_enabled": true
+      }
+    },
+    "budget": {
+      "enabled": true,
+      "settings": {
+        "currency": "EUR"
+      }
+    }
+  }
+}
+
+
+### Meal Polls V2 - Lire le sondage actif
+GET {{baseUrl}}/api/meal-polls/active
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+> {%
+  const poll = response.body.poll;
+  if (poll && poll.id) {
+    client.global.set('meal_poll_id', poll.id);
+    const firstOption = Array.isArray(poll.options) && poll.options.length > 0 ? poll.options[0] : null;
+    if (firstOption) {
+      client.global.set('meal_poll_option_id', firstOption.id);
+      client.global.set('meal_poll_recipe_id', firstOption.recipe_id);
+    }
+    client.log('meal_poll_id capture: ' + poll.id);
+  }
+%}
+
+### Meal Polls V2 - Ouvrir un sondage (Parent)
+# NOTE: max_votes_per_user ne peut pas depasser le nombre de recettes dans recipe_ids.
+# NOTE: planning_start_date et planning_end_date definissent la plage de dates autorisee pour la planification.
+POST {{baseUrl}}/api/meal-polls
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "title": "Sondage semaine test",
+  "recipe_ids": [1, 2],
+  "planning_start_date": "2026-02-23",
+  "planning_end_date": "2026-03-01",
+  "duration_hours": 24,
+  "max_votes_per_user": 2
+}
+
+> {%
+  const poll = response.body.poll;
+  if (poll && poll.id) {
+    client.global.set('meal_poll_id', poll.id);
+    const firstOption = Array.isArray(poll.options) && poll.options.length > 0 ? poll.options[0] : null;
+    if (firstOption) {
+      client.global.set('meal_poll_option_id', firstOption.id);
+      client.global.set('meal_poll_recipe_id', firstOption.recipe_id);
+    }
+  }
+%}
+
+### Meal Polls V2 - Voter (toggle) sur une option
+POST {{baseUrl}}/api/meal-polls/{{meal_poll_id}}/vote
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "option_id": {{meal_poll_option_id}}
+}
+
+### Meal Polls V2 - Voter (synchronisation des choix)
+# NOTE: option_ids doit contenir exactement `max_votes_per_user` options.
+POST {{baseUrl}}/api/meal-polls/{{meal_poll_id}}/votes/sync
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "option_ids": [{{meal_poll_option_id}}]
+}
+
+### Meal Polls V2 - Cloturer le sondage (Parent)
+POST {{baseUrl}}/api/meal-polls/{{meal_poll_id}}/close
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+### Meal Polls V2 - Valider les resultats + meal plan
+POST {{baseUrl}}/api/meal-polls/{{meal_poll_id}}/validate
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "selected_recipe_ids": [{{meal_poll_recipe_id}}],
+  "meal_plan": [
+    {
+      "date": "2026-02-20",
+      "meal_type": "soir",
+      "recipe_id": {{meal_poll_recipe_id}},
+      "servings": 4
+    }
+  ]
+}
+
+### Meal Polls V2 - Historique valide
+GET {{baseUrl}}/api/meal-polls/history
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+### Dashboard - Vue complete sondages + recettes preferees
+GET {{baseUrl}}/api/dashboard
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+### Notifications - Recuperer celles en attente d'envoi local
+GET {{baseUrl}}/api/notifications/pending
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+> {%
+  const notifications = Array.isArray(response.body.notifications) ? response.body.notifications : [];
+  if (notifications.length > 0) {
+    client.global.set('notification_id', notifications[0].id);
+    client.log('notification_id capture: ' + notifications[0].id);
+  }
+%}
+
+### Notifications - Marquer lue
+POST {{baseUrl}}/api/notifications/{{notification_id}}/read
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+### Shopping Lists - Lister les listes du foyer
+GET {{baseUrl}}/api/shopping-lists
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+> {%
+  const first = Array.isArray(response.body?.lists) ? response.body.lists[0] : null;
+  if (first?.id) {
+    client.global.set('shopping_list_id', first.id);
+    client.log('shopping_list_id capture: ' + first.id);
+  }
+%}
+
+### Shopping Lists - Creer une nouvelle liste (parent)
+POST {{baseUrl}}/api/shopping-lists
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "title": "Courses weekend"
+}
+
+> {%
+  const list = response.body?.list;
+  if (list?.id) {
+    client.global.set('shopping_list_id', list.id);
+    client.log('shopping_list_id cree: ' + list.id);
+  }
+%}
+
+### Shopping Lists - Detail d'une liste
+# Reponse attendue:
+# - list.items: elements de la liste
+# - planned_recipe_suggestions: repas planifies (resultat sondage/meal plan) + ingredients detailles
+GET {{baseUrl}}/api/shopping-lists/{{shopping_list_id}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+### Shopping Lists - Ajouter un ingredient manuel
+POST {{baseUrl}}/api/shopping-lists/{{shopping_list_id}}/items
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "name": "banane",
+  "quantity": 6,
+  "unit": "piece"
+}
+
+### Shopping Lists - Cocher/mettre a jour un element
+PATCH {{baseUrl}}/api/shopping-lists/items/1
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "is_checked": true
+}
+
+# Reponse attendue:
+# - is_checked = true
+# - checked_by (id, name) = utilisateur qui vient de cocher
+
+### Shopping Lists - Supprimer un element (parent)
+DELETE {{baseUrl}}/api/shopping-lists/items/1
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+### Shopping Lists - Supprimer une liste (parent)
+DELETE {{baseUrl}}/api/shopping-lists/{{shopping_list_id}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+### Broadcast - Auth private household channel (WebSocket Reverb)
+# Endpoint utilise par le client mobile pour s'abonner a:
+# - private-household.{household_id}
+# Event diffuse:
+# - household.realtime avec payload { module, type, payload, emitted_at }
+POST {{baseUrl}}/api/broadcasting/auth
+Content-Type: application/x-www-form-urlencoded
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+socket_id=1234.5678&channel_name=private-household.{{household_id}}
