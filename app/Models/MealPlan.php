@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class MealPlan extends Model
 {
@@ -12,11 +13,13 @@ class MealPlan extends Model
         'recipe_id',
         'date',
         'meal_type',
-        'servings'
+        'servings',
+        'note',
     ];
 
     protected $casts = [
         'date' => 'date',
+        'servings' => 'integer',
     ];
 
     public function household(): BelongsTo
@@ -24,8 +27,8 @@ class MealPlan extends Model
         return $this->belongsTo(Household::class);
     }
 
-    public function recipe(): BelongsTo
+    public function items(): HasMany
     {
-        return $this->belongsTo(Recipe::class);
+        return $this->hasMany(MealPlanItem::class);
     }
 }

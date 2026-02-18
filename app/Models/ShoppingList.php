@@ -14,8 +14,15 @@ class ShoppingList extends Model
 
 
 
-    public function shoppingListItems() {
+    public function items()
+    {
         return $this->hasMany(ShoppingListItem::class);
+    }
+
+    // Alias garde pour compatibilite avec l'ancien code.
+    public function shoppingListItems()
+    {
+        return $this->items();
     }
 
     public function household() {

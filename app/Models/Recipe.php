@@ -3,11 +3,26 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Recipe extends Model
 {
-    protected $fillable = ['household_id', 'title', 'type', 'description', 'instructions', 'is_ai_generated', 'source_url'];
+    protected $fillable = [
+        'household_id',
+        'title',
+        'type',
+        'description',
+        'instructions',
+        'is_ai_generated',
+        'source_url',
+        'base_servings',
+    ];
+
+    protected $casts = [
+        'is_ai_generated' => 'boolean',
+        'base_servings' => 'integer',
+    ];
     public function household()
     {
         return $this->belongsTo(Household::class);
@@ -20,9 +35,11 @@ class Recipe extends Model
             ->withTimestamps();
     }
 
-    public function mealPlans(): hasMany
+    public function mealPlans(): BelongsToMany
     {
-        return $this->hasMany(MealPlan::class);
+        return $this->belongsToMany(MealPlan::class, 'meal_plan_items')
+            ->withPivot('servings', 'position')
+            ->withTimestamps();
     }
 
     public function lastTimeCooked()

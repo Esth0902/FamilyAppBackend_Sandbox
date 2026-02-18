@@ -23,11 +23,32 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        RateLimiter::for('ai', function (Request $request) {
-            return Limit::perMinute(6)->by($request->user()?->id ?: $request->ip());
+        RateLimiter::for('api', function (Request $request) {
+            $perMinute = max(1, (int) env('API_RATE_LIMIT_PER_MINUTE', 120));
+
+            return Limit::perMinute($perMinute)
+                ->by($request->user()?->id ?: $request->ip());
         });
+
+        RateLimiter::for('ai', function (Request $request) {
+            $perMinute = max(1, (int) env('API_AI_RATE_LIMIT_PER_MINUTE', 20));
+
+            return Limit::perMinute($perMinute)
+                ->by($request->user()?->id ?: $request->ip());
+        });
+
+        RateLimiter::for('broadcast', function (Request $request) {
+            $perMinute = max(1, (int) env('API_BROADCAST_RATE_LIMIT_PER_MINUTE', 180));
+
+            return Limit::perMinute($perMinute)
+                ->by($request->user()?->id ?: $request->ip());
+        });
+
         ResetPassword::createUrlUsing(function (object $notifiable, string $token) {
-            return config('app.frontend_url')."/password-reset/$token?email={$notifiable->getEmailForPasswordReset()}";
+            $frontendBaseUrl = rtrim((string) (config('app.frontend_url') ?: config('app.url')), '/');
+            $email = urlencode((string) $notifiable->getEmailForPasswordReset());
+
+            return $frontendBaseUrl . "/password-reset/$token?email=$email";
         });
     }
 }

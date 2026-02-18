@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Models\User;
 
 class ShoppingListItem extends Model
 {
@@ -13,6 +14,7 @@ class ShoppingListItem extends Model
         'quantity',
         'unit',
         'is_checked',
+        'checked_by_user_id',
         'is_manual_addition'
     ];
 
@@ -27,6 +29,11 @@ class ShoppingListItem extends Model
 
     public function ingredient() {
         return $this->belongsTo(Ingredient::class);
+    }
+
+    public function checkedBy()
+    {
+        return $this->belongsTo(User::class, 'checked_by_user_id');
     }
 
 }

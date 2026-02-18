@@ -24,6 +24,7 @@ class User extends Authenticatable
         'name',
         'email',
         'password',
+        'is_admin',
         'must_change_password',
     ];
 
@@ -47,6 +48,7 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'is_admin' => 'boolean',
             'must_change_password' => 'boolean',
         ];
     }
@@ -87,5 +89,10 @@ class User extends Authenticatable
     public function mealPollVotes()
     {
         return $this->hasMany(MealPollVote::class);
+    }
+
+    public function appNotifications()
+    {
+        return $this->hasMany(UserNotification::class);
     }
 }

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Ingredient;
+use App\Models\MealSetting;
 use App\Models\Recipe;
 use App\Services\AiService;
 use Illuminate\Http\Request;
@@ -39,23 +40,28 @@ class RecipeController extends Controller
         $this->aiService = $aiService;
     }
 
-    public function index()
+    public function index(Request $request)
     {
         $userId = Auth::id();
 
-        $recipes = Recipe::with('ingredients')
+        $recipes = Recipe::with(['ingredients', 'household.mealSettings'])
             ->whereHas('household.users', function ($query) use ($userId) {
                 $query->where('users.id', $userId);
             })
             ->orderBy('title', 'asc')
             ->get();
 
-        return response()->json($recipes);
+        $formattedRecipes = $recipes->map(function (Recipe $recipe) use ($request) {
+            $targetServings = $this->resolveTargetServings($request, $recipe);
+            return $this->applyServingsView($recipe, $targetServings);
+        })->values();
+
+        return response()->json($formattedRecipes);
     }
 
-    public function show($id)
+    public function show(Request $request, $id)
     {
-        $recipe = Recipe::with('ingredients')->find($id);
+        $recipe = Recipe::with(['ingredients', 'household.mealSettings'])->find($id);
 
         if (!$recipe) {
             return response()->json(['message' => 'Recette introuvable'], 404);
@@ -63,7 +69,8 @@ class RecipeController extends Controller
 
         $this->authorize('view', $recipe);
 
-        return response()->json($recipe);
+        $targetServings = $this->resolveTargetServings($request, $recipe);
+        return response()->json($this->applyServingsView($recipe, $targetServings));
     }
 
     public function suggestIdeas(Request $request)
@@ -129,6 +136,7 @@ class RecipeController extends Controller
                 'description' => $validated['description'],
                 'instructions' => $validated['instructions'],
                 'is_ai_generated' => true,
+                'base_servings' => 1,
             ]);
 
             $syncData = [];
@@ -177,6 +185,7 @@ class RecipeController extends Controller
             'ingredients.*.quantity' => 'nullable|numeric',
             'ingredients.*.unit' => 'nullable|string|max:50',
             'ingredients.*.category' => 'nullable|string|in:' . implode(',', self::INGREDIENT_CATEGORIES),
+            'base_servings' => 'nullable|integer|min:1|max:30',
         ]);
 
         $this->authorize('create', [Recipe::class, $household->id]);
@@ -190,6 +199,7 @@ class RecipeController extends Controller
                 'description' => $validated['description'] ?? '',
                 'instructions' => $validated['instructions'] ?? '',
                 'is_ai_generated' => false,
+                'base_servings' => (int)($validated['base_servings'] ?? $this->resolveHouseholdDefaultServings((int)$household->id)),
             ]);
 
             $syncData = [];
@@ -236,6 +246,7 @@ class RecipeController extends Controller
             'ingredients.*.unit' => 'nullable|string|max:50',
             'ingredients.*.quantity' => 'nullable|numeric',
             'ingredients.*.category' => 'nullable|string|in:' . implode(',', self::INGREDIENT_CATEGORIES),
+            'base_servings' => 'nullable|integer|min:1|max:30',
         ]);
 
         return DB::transaction(function () use ($recipe, $validated) {
@@ -245,6 +256,7 @@ class RecipeController extends Controller
                 'type' => $validated['type'],
                 'description' => $validated['description'] ?? '',
                 'instructions' => $validated['instructions'] ?? '',
+                'base_servings' => (int)($validated['base_servings'] ?? $recipe->base_servings ?? 1),
             ]);
 
             $syncData = [];
@@ -313,5 +325,50 @@ class RecipeController extends Controller
         $category = $aliases[$category] ?? $category;
 
         return in_array($category, self::INGREDIENT_CATEGORIES, true) ? $category : 'autre';
+    }
+
+    private function resolveTargetServings(Request $request, Recipe $recipe): int
+    {
+        $queryServings = $request->query('servings');
+        if (is_numeric($queryServings)) {
+            $parsed = (int)$queryServings;
+            if ($parsed >= 1 && $parsed <= 30) {
+                return $parsed;
+            }
+        }
+
+        $householdDefault = (int)($recipe->household?->mealSettings?->default_servings ?? 0);
+        if ($householdDefault >= 1) {
+            return $householdDefault;
+        }
+
+        $baseServings = (int)($recipe->base_servings ?? 0);
+        return $baseServings >= 1 ? $baseServings : 1;
+    }
+
+    private function resolveHouseholdDefaultServings(int $householdId): int
+    {
+        $defaultServings = (int)(MealSetting::query()
+            ->where('household_id', $householdId)
+            ->value('default_servings') ?? 0);
+        return $defaultServings >= 1 ? $defaultServings : 1;
+    }
+
+    private function applyServingsView(Recipe $recipe, int $targetServings): Recipe
+    {
+        $baseServings = max(1, (int)($recipe->base_servings ?? 1));
+        $targetServings = max(1, $targetServings);
+        $scaleFactor = $targetServings / $baseServings;
+
+        $recipe->setAttribute('display_servings', $targetServings);
+        $recipe->setAttribute('scale_factor', $scaleFactor);
+
+        $recipe->ingredients->each(function (Ingredient $ingredient) use ($scaleFactor): void {
+            $baseQuantity = (float)($ingredient->pivot->quantity ?? 0);
+            $ingredient->setAttribute('base_quantity', $baseQuantity);
+            $ingredient->setAttribute('scaled_quantity', round($baseQuantity * $scaleFactor, 2));
+        });
+
+        return $recipe;
     }
 }
