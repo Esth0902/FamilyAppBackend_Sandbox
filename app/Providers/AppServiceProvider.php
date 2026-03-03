@@ -2,8 +2,12 @@
 
 namespace App\Providers;
 
+use App\Routing\Utf8SafeResponseFactory;
 use Illuminate\Auth\Notifications\ResetPassword;
+use Illuminate\Contracts\Routing\ResponseFactory as ResponseFactoryContract;
+use Illuminate\Contracts\View\Factory as ViewFactoryContract;
 use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Routing\ResponseFactory as IlluminateResponseFactory;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
@@ -15,7 +19,11 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        $this->app->singleton(ResponseFactoryContract::class, function ($app) {
+            return new Utf8SafeResponseFactory($app[ViewFactoryContract::class], $app['redirect']);
+        });
+
+        $this->app->alias(ResponseFactoryContract::class, IlluminateResponseFactory::class);
     }
 
     /**

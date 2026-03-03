@@ -318,11 +318,14 @@ Authorization: Bearer {{auth_token}}
             "name": "Sortir les poubelles",
             "description": "Bac noir et PMC",
             "recurrence": "weekly",
-            "is_rotation": false
+            "recurrence_days": [3, 4],
+            "is_rotation": true,
+            "rotation_cycle_weeks": 2
           },
           {
             "name": "Ranger la chambre",
             "recurrence": "daily",
+            "recurrence_days": [1, 2, 3, 4, 5, 6, 7],
             "is_rotation": false
           }
         ]
@@ -412,7 +415,9 @@ Authorization: Bearer {{auth_token}}
           {
             "name": "Passer l'aspirateur",
             "recurrence": "weekly",
-            "is_rotation": false
+            "recurrence_days": [6],
+            "is_rotation": true,
+            "rotation_cycle_weeks": 1
           }
         ]
       }
@@ -639,3 +644,206 @@ Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
 socket_id=1234.5678&channel_name=private-household.{{household_id}}
+
+### Tasks - Lire le tableau des taches
+GET {{baseUrl}}/api/tasks/board?from=2026-02-16&to=2026-02-28
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+> {%
+  const templates = Array.isArray(response.body?.templates) ? response.body.templates : [];
+  const instances = Array.isArray(response.body?.instances) ? response.body.instances : [];
+  const firstTemplate = templates[0];
+  const firstInstance = instances[0];
+  if (firstTemplate?.id) {
+    client.global.set('task_template_id', firstTemplate.id);
+    client.log('task_template_id capture: ' + firstTemplate.id);
+  }
+  if (firstInstance?.id) {
+    client.global.set('task_instance_id', firstInstance.id);
+    client.log('task_instance_id capture: ' + firstInstance.id);
+  }
+%}
+
+### Tasks - Creer un template (parent)
+POST {{baseUrl}}/api/tasks/templates
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "name": "Passer l aspirateur",
+  "description": "Salon + couloir",
+  "recurrence": "weekly",
+  "recurrence_days": [3, 5],
+  "is_rotation": true,
+  "rotation_cycle_weeks": 2
+}
+
+> {%
+  const template = response.body?.template;
+  if (template?.id) {
+    client.global.set('task_template_id', template.id);
+    client.log('task_template_id cree: ' + template.id);
+  }
+%}
+
+### Tasks - Mettre a jour un template (parent)
+PATCH {{baseUrl}}/api/tasks/templates/{{task_template_id}}
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "name": "Passer l aspirateur + poussiere",
+  "recurrence": "weekly",
+  "recurrence_days": [3, 5],
+  "is_rotation": true,
+  "rotation_cycle_weeks": 1
+}
+
+### Tasks - Creer une instance (parent)
+POST {{baseUrl}}/api/tasks/instances
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "task_template_id": {{task_template_id}},
+  "due_date": "2026-02-20"
+}
+
+> {%
+  const instance = response.body?.instance;
+  if (instance?.id) {
+    client.global.set('task_instance_id', instance.id);
+    client.log('task_instance_id cree: ' + instance.id);
+  }
+%}
+
+### Tasks - Cocher / decocher une instance (membre assigne ou parent)
+PATCH {{baseUrl}}/api/tasks/instances/{{task_instance_id}}
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "status": "réalisée"
+}
+
+### Tasks - Valider une tache realisee (parent)
+POST {{baseUrl}}/api/tasks/instances/{{task_instance_id}}/validate
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+### Tasks - Supprimer un template (parent)
+DELETE {{baseUrl}}/api/tasks/templates/{{task_template_id}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+### Calendar - Lire le board calendrier
+GET {{baseUrl}}/api/calendar/board?from=2026-02-16&to=2026-03-01
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+> {%
+  const events = Array.isArray(response.body?.events) ? response.body.events : [];
+  const mealPlan = Array.isArray(response.body?.meal_plan) ? response.body.meal_plan : [];
+  const firstEvent = events[0];
+  const firstMealPlan = mealPlan[0];
+  if (firstEvent?.id) {
+    client.global.set('calendar_event_id', firstEvent.id);
+    client.log('calendar_event_id capture: ' + firstEvent.id);
+  }
+  if (firstMealPlan?.id) {
+    client.global.set('calendar_meal_plan_id', firstMealPlan.id);
+    client.log('calendar_meal_plan_id capture: ' + firstMealPlan.id);
+  }
+%}
+
+### Calendar - Creer un evenement prive au foyer
+POST {{baseUrl}}/api/calendar/events
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "title": "Dentiste Mila",
+  "description": "Controle annuel a 15h20",
+  "start_at": "2026-02-24T15:20:00",
+  "end_at": "2026-02-24T16:00:00",
+  "is_shared_with_other_household": false
+}
+
+> {%
+  const event = response.body?.event;
+  if (event?.id) {
+    client.global.set('calendar_event_id', event.id);
+    client.log('calendar_event_id cree: ' + event.id);
+  }
+%}
+
+### Calendar - Creer un evenement partage avec l autre foyer (parent uniquement)
+POST {{baseUrl}}/api/calendar/events
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "title": "Spectacle de danse",
+  "description": "Information utile aux deux foyers",
+  "start_at": "2026-02-27T18:00:00",
+  "end_at": "2026-02-27T20:00:00",
+  "is_shared_with_other_household": true
+}
+
+### Calendar - Modifier un evenement existant
+PATCH {{baseUrl}}/api/calendar/events/{{calendar_event_id}}
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "title": "Dentiste Mila - modifie",
+  "description": "Controle annuel deplace",
+  "start_at": "2026-02-24T16:00:00",
+  "end_at": "2026-02-24T16:30:00",
+  "is_shared_with_other_household": false
+}
+
+### Calendar - Modifier un meal plan d une journee (parent)
+PATCH {{baseUrl}}/api/calendar/meal-plan/{{calendar_meal_plan_id}}
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "date": "2026-02-20",
+  "meal_type": "soir",
+  "recipe_id": {{meal_poll_recipe_id}},
+  "servings": 5,
+  "note": "Repas adapte apres validation"
+}
+
+### Calendar - Modifier un meal plan en repas libre (parent)
+PATCH {{baseUrl}}/api/calendar/meal-plan/{{calendar_meal_plan_id}}
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "date": "2026-02-20",
+  "meal_type": "soir",
+  "custom_title": "Resto",
+  "note": "Reservation a 19h30"
+}
+
+### Calendar - Supprimer un meal plan d une journee (parent)
+DELETE {{baseUrl}}/api/calendar/meal-plan/{{calendar_meal_plan_id}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+### Calendar - Supprimer un evenement
+DELETE {{baseUrl}}/api/calendar/events/{{calendar_event_id}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}

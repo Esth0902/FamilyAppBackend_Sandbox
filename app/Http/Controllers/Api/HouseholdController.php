@@ -11,6 +11,7 @@ use App\Models\MealPoll;
 use App\Models\MealPollVote;
 use App\Models\MealSetting;
 use App\Models\TaskTemplate;
+use App\Support\JsonUtf8Sanitizer;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -74,10 +75,15 @@ class HouseholdController extends Controller
             'modules.tasks.settings' => 'nullable|array',
             'modules.tasks.settings.reminders_enabled' => 'nullable|boolean',
             'modules.tasks.settings.templates' => 'nullable|array',
+            'modules.tasks.settings.templates.*.id' => 'nullable|integer',
             'modules.tasks.settings.templates.*.name' => 'required|string|max:255',
             'modules.tasks.settings.templates.*.description' => 'nullable|string|max:1000',
-            'modules.tasks.settings.templates.*.recurrence' => 'required|in:daily,weekly,monthly',
+            'modules.tasks.settings.templates.*.recurrence' => 'required|in:daily,weekly,monthly,once',
+            'modules.tasks.settings.templates.*.recurrence_days' => 'nullable|array',
+            'modules.tasks.settings.templates.*.recurrence_days.*' => 'nullable|integer|min:1|max:7',
             'modules.tasks.settings.templates.*.is_rotation' => 'nullable|boolean',
+            'modules.tasks.settings.templates.*.rotation_cycle_weeks' => 'nullable|integer|in:1,2',
+            'modules.tasks.settings.templates.*.fixed_user_id' => 'nullable|integer',
 
             'modules.calendar.enabled' => 'nullable|boolean',
             'modules.calendar.settings' => 'nullable|array',
@@ -152,14 +158,14 @@ class HouseholdController extends Controller
 
             $this->syncDietaryTags($household, $modules['meals']['dietary_tags']);
 
-            return response()->json([
+            return response()->json(JsonUtf8Sanitizer::sanitize([
                 'message' => 'Foyer cree et configure avec succes.',
                 'household' => $household,
                 'household_settings' => $householdSettings,
                 'meal_settings' => $mealSettings,
                 'created_members' => $createdMembers,
                 'created_task_templates' => $createdTaskTemplates,
-            ], 201);
+            ]), 201);
         });
     }
 
@@ -211,13 +217,13 @@ class HouseholdController extends Controller
                 . "Mot de passe temporaire : {$rawPassword}\n\n"
                 . "Connecte-toi puis modifie ton mot de passe des la premiere connexion.";
 
-            return response()->json([
+            return response()->json(JsonUtf8Sanitizer::sanitize([
                 'message' => 'Compte cree avec succes',
                 'user' => $newUser,
                 'generated_password' => $rawPassword,
                 'generated_email' => $finalEmail,
                 'share_text' => $shareText,
-            ], 201);
+            ]), 201);
         });
     }
 
@@ -255,7 +261,7 @@ class HouseholdController extends Controller
 
         $favoriteRecipes = $this->buildFavoriteRecipesPayload($household->id);
 
-        return response()->json([
+        return response()->json(JsonUtf8Sanitizer::sanitize([
             'household_name' => $household->name,
             'members' => $household->users,
             'active_poll' => $openPolls->first(),
@@ -263,7 +269,7 @@ class HouseholdController extends Controller
             'polls_closed' => $closedPolls,
             'polls' => $pollsPayload,
             'favorite_recipes' => $favoriteRecipes,
-        ]);
+        ]));
     }
 
     private function toDashboardPollPayload(MealPoll $poll): array
@@ -354,7 +360,7 @@ class HouseholdController extends Controller
             ->orderBy('id')
             ->get();
 
-        return response()->json([
+        return response()->json(JsonUtf8Sanitizer::sanitize([
             'household' => [
                 'id' => $household->id,
                 'name' => $household->name,
@@ -394,12 +400,16 @@ class HouseholdController extends Controller
                         'enabled' => (bool)($settings?->has_tasks ?? false),
                         'settings' => [
                             'reminders_enabled' => (bool)($tasksConfig['reminders_enabled'] ?? true),
-                            'templates' => $taskTemplates->map(static function (TaskTemplate $template): array {
+                            'templates' => $taskTemplates->map(function (TaskTemplate $template): array {
                                 return [
+                                    'id' => (int)$template->id,
                                     'name' => $template->name,
                                     'description' => $template->description,
                                     'recurrence' => $template->recurrence,
+                                    'recurrence_days' => $this->normalizeTaskRecurrenceDays($template->recurrence_days),
                                     'is_rotation' => (bool)$template->is_rotation,
+                                    'rotation_cycle_weeks' => $this->normalizeRotationCycleWeeks($template->rotation_cycle_weeks ?? 1),
+                                    'fixed_user_id' => $template->fixed_user_id ? (int)$template->fixed_user_id : null,
                                 ];
                             })->values(),
                         ],
@@ -414,7 +424,7 @@ class HouseholdController extends Controller
                     ],
                 ],
             ],
-        ]);
+        ]));
     }
 
     public function dietaryTags(Request $request)
@@ -561,10 +571,15 @@ class HouseholdController extends Controller
             'modules.tasks.settings' => 'nullable|array',
             'modules.tasks.settings.reminders_enabled' => 'nullable|boolean',
             'modules.tasks.settings.templates' => 'nullable|array',
+            'modules.tasks.settings.templates.*.id' => 'nullable|integer',
             'modules.tasks.settings.templates.*.name' => 'required|string|max:255',
             'modules.tasks.settings.templates.*.description' => 'nullable|string|max:1000',
-            'modules.tasks.settings.templates.*.recurrence' => 'required|in:daily,weekly,monthly',
+            'modules.tasks.settings.templates.*.recurrence' => 'required|in:daily,weekly,monthly,once',
+            'modules.tasks.settings.templates.*.recurrence_days' => 'nullable|array',
+            'modules.tasks.settings.templates.*.recurrence_days.*' => 'nullable|integer|min:1|max:7',
             'modules.tasks.settings.templates.*.is_rotation' => 'nullable|boolean',
+            'modules.tasks.settings.templates.*.rotation_cycle_weeks' => 'nullable|integer|in:1,2',
+            'modules.tasks.settings.templates.*.fixed_user_id' => 'nullable|integer',
 
             'modules.calendar.enabled' => 'nullable|boolean',
             'modules.calendar.settings' => 'nullable|array',
@@ -619,8 +634,7 @@ class HouseholdController extends Controller
 
             $updatedTaskTemplates = [];
             if ($modules['tasks']['enabled']) {
-                TaskTemplate::where('household_id', $household->id)->delete();
-                $updatedTaskTemplates = $this->createTaskTemplates(
+                $updatedTaskTemplates = $this->upsertTaskTemplates(
                     $household,
                     $modules['tasks']['settings']['templates'] ?? []
                 );
@@ -793,14 +807,44 @@ class HouseholdController extends Controller
 
             $description = trim((string)($template['description'] ?? ''));
             $recurrence = strtolower(trim((string)($template['recurrence'] ?? 'weekly')));
+            $normalizedRecurrence = in_array($recurrence, ['daily', 'weekly', 'monthly', 'once'], true)
+                ? $recurrence
+                : 'weekly';
+            $recurrenceDays = $this->normalizeTaskRecurrenceDays($template['recurrence_days'] ?? []);
+            if (!in_array($normalizedRecurrence, ['daily', 'weekly'], true)) {
+                $recurrenceDays = [];
+            }
+
+            $rotationEnabled = (bool)($template['is_rotation'] ?? false);
+            $rotationCycleWeeks = $rotationEnabled
+                ? $this->normalizeRotationCycleWeeks($template['rotation_cycle_weeks'] ?? 1)
+                : 1;
+
+            $fixedUserId = null;
+            if (isset($template['fixed_user_id']) && is_numeric($template['fixed_user_id'])) {
+                $parsedUserId = (int)$template['fixed_user_id'];
+                if ($parsedUserId > 0) {
+                    $fixedUserId = $parsedUserId;
+                }
+            }
+
+            $templateId = null;
+            if (isset($template['id']) && is_numeric($template['id'])) {
+                $parsedTemplateId = (int)$template['id'];
+                if ($parsedTemplateId > 0) {
+                    $templateId = $parsedTemplateId;
+                }
+            }
 
             $taskTemplates[] = [
+                'id' => $templateId,
                 'name' => $name,
                 'description' => $description !== '' ? $description : null,
-                'recurrence' => in_array($recurrence, ['daily', 'weekly', 'monthly'], true)
-                    ? $recurrence
-                    : 'weekly',
-                'is_rotation' => (bool)($template['is_rotation'] ?? false),
+                'recurrence' => $normalizedRecurrence,
+                'recurrence_days' => $recurrenceDays,
+                'is_rotation' => $rotationEnabled,
+                'rotation_cycle_weeks' => $rotationCycleWeeks,
+                'fixed_user_id' => $fixedUserId,
             ];
         }
 
@@ -843,17 +887,6 @@ class HouseholdController extends Controller
     {
         if (!($tasksModule['enabled'] ?? false)) {
             return;
-        }
-
-        $settings = is_array($tasksModule['settings'] ?? null) ? $tasksModule['settings'] : [];
-        $templates = is_array($settings['templates'] ?? null) ? $settings['templates'] : [];
-
-        if (count($templates) === 0) {
-            throw ValidationException::withMessages([
-                'modules.tasks.settings.templates' => [
-                    'Ajoutez au moins un template de tache quand le module Taches menageres est active.',
-                ],
-            ]);
         }
     }
 
@@ -995,24 +1028,135 @@ class HouseholdController extends Controller
         $createdTemplates = [];
 
         foreach ($templates as $template) {
-            $taskTemplate = TaskTemplate::create([
-                'household_id' => $household->id,
-                'name' => (string)$template['name'],
-                'description' => $template['description'] ?? null,
-                'recurrence' => (string)$template['recurrence'],
-                'is_rotation' => (bool)($template['is_rotation'] ?? false),
-                'fixed_user_id' => null,
-            ]);
-
-            $createdTemplates[] = [
-                'id' => $taskTemplate->id,
-                'name' => $taskTemplate->name,
-                'recurrence' => $taskTemplate->recurrence,
-                'is_rotation' => (bool)$taskTemplate->is_rotation,
-            ];
+            $taskTemplate = TaskTemplate::create($this->buildTaskTemplateAttributes($household, $template));
+            $createdTemplates[] = $this->toTaskTemplateConfigPayload($taskTemplate);
         }
 
         return $createdTemplates;
+    }
+
+    private function upsertTaskTemplates(Household $household, array $templates): array
+    {
+        $upsertedTemplates = [];
+
+        foreach ($templates as $template) {
+            if (!is_array($template)) {
+                continue;
+            }
+
+            $templateId = isset($template['id']) && is_numeric($template['id'])
+                ? (int)$template['id']
+                : null;
+
+            $taskTemplate = null;
+            if ($templateId && $templateId > 0) {
+                $taskTemplate = TaskTemplate::query()
+                    ->where('household_id', $household->id)
+                    ->where('id', $templateId)
+                    ->first();
+            }
+
+            if ($taskTemplate) {
+                $taskTemplate->update($this->buildTaskTemplateAttributes($household, $template, false));
+            } else {
+                $taskTemplate = TaskTemplate::create($this->buildTaskTemplateAttributes($household, $template));
+            }
+
+            $upsertedTemplates[] = $this->toTaskTemplateConfigPayload($taskTemplate);
+        }
+
+        return $upsertedTemplates;
+    }
+
+    private function buildTaskTemplateAttributes(
+        Household $household,
+        array $template,
+        bool $includeHouseholdId = true
+    ): array {
+        $fixedUserId = null;
+        if (isset($template['fixed_user_id']) && is_numeric($template['fixed_user_id'])) {
+            $candidateUserId = (int)$template['fixed_user_id'];
+            if (
+                $candidateUserId > 0
+                && $household->users()->where('users.id', $candidateUserId)->exists()
+            ) {
+                $fixedUserId = $candidateUserId;
+            }
+        }
+
+        $recurrenceDays = $this->normalizeTaskRecurrenceDays($template['recurrence_days'] ?? []);
+        $recurrence = (string)($template['recurrence'] ?? 'weekly');
+        if (!in_array($recurrence, ['daily', 'weekly'], true)) {
+            $recurrenceDays = [];
+        }
+
+        $rotationEnabled = (bool)($template['is_rotation'] ?? false);
+
+        $attributes = [
+            'name' => (string)($template['name'] ?? ''),
+            'description' => $template['description'] ?? null,
+            'recurrence' => $recurrence,
+            'recurrence_days' => count($recurrenceDays) > 0 ? $recurrenceDays : null,
+            'is_rotation' => $rotationEnabled,
+            'rotation_cycle_weeks' => $rotationEnabled
+                ? $this->normalizeRotationCycleWeeks($template['rotation_cycle_weeks'] ?? 1)
+                : 1,
+            'fixed_user_id' => $fixedUserId,
+        ];
+
+        if ($includeHouseholdId) {
+            $attributes['household_id'] = $household->id;
+        }
+
+        return $attributes;
+    }
+
+    private function toTaskTemplateConfigPayload(TaskTemplate $taskTemplate): array
+    {
+        return [
+            'id' => $taskTemplate->id,
+            'name' => $taskTemplate->name,
+            'recurrence' => $taskTemplate->recurrence,
+            'recurrence_days' => $this->normalizeTaskRecurrenceDays($taskTemplate->recurrence_days),
+            'is_rotation' => (bool)$taskTemplate->is_rotation,
+            'rotation_cycle_weeks' => $this->normalizeRotationCycleWeeks($taskTemplate->rotation_cycle_weeks ?? 1),
+            'fixed_user_id' => $taskTemplate->fixed_user_id ? (int)$taskTemplate->fixed_user_id : null,
+        ];
+    }
+
+    /**
+     * @return array<int, int>
+     */
+    private function normalizeTaskRecurrenceDays(mixed $value): array
+    {
+        if (!is_array($value)) {
+            return [];
+        }
+
+        $days = [];
+        foreach ($value as $dayValue) {
+            $day = (int)$dayValue;
+            if ($day < 1 || $day > 7) {
+                continue;
+            }
+            if (!in_array($day, $days, true)) {
+                $days[] = $day;
+            }
+        }
+
+        sort($days);
+
+        return $days;
+    }
+
+    private function normalizeRotationCycleWeeks(mixed $value): int
+    {
+        $parsed = (int)$value;
+        if (!in_array($parsed, [1, 2], true)) {
+            return 1;
+        }
+
+        return $parsed;
     }
 
     /**

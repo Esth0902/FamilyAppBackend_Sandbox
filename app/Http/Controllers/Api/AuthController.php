@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Household;
 use App\Models\User;
+use App\Support\JsonUtf8Sanitizer;
 use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -34,17 +35,17 @@ class AuthController extends Controller
 
         $token = $user->createToken('mobile')->plainTextToken;
 
-        return response()->json([
+        return response()->json(JsonUtf8Sanitizer::sanitize([
             'user' => $user,
             'token' => $token,
-        ]);
+        ]));
     }
 
     public function me(Request $request)
     {
-        return response()->json([
+        return response()->json(JsonUtf8Sanitizer::sanitize([
             'user' => $request->user()->load('households'),
-        ]);
+        ]));
     }
 
     public function logout(Request $request)
@@ -72,10 +73,10 @@ class AuthController extends Controller
 
         $token = $user->createToken('mobile')->plainTextToken;
 
-        return response()->json([
+        return response()->json(JsonUtf8Sanitizer::sanitize([
             'user' => $user,
             'token' => $token,
-        ], 201);
+        ]), 201);
     }
 
     public function forgotPassword(Request $request)
@@ -144,10 +145,10 @@ class AuthController extends Controller
             'must_change_password' => false,
         ])->save();
 
-        return response()->json([
+        return response()->json(JsonUtf8Sanitizer::sanitize([
             'message' => 'Identifiants mis a jour.',
             'user' => $user->fresh()->load('households'),
-        ]);
+        ]));
     }
 
     public function updateProfile(Request $request)
@@ -187,10 +188,10 @@ class AuthController extends Controller
             $user->forceFill($updates)->save();
         }
 
-        return response()->json([
+        return response()->json(JsonUtf8Sanitizer::sanitize([
             'message' => 'Profil mis a jour.',
             'user' => $user->fresh()->load('households'),
-        ]);
+        ]));
     }
 
     public function updateHouseholdNickname(Request $request, Household $household)
@@ -226,7 +227,7 @@ class AuthController extends Controller
             ->where('households.id', $household->id)
             ->firstOrFail();
 
-        return response()->json([
+        return response()->json(JsonUtf8Sanitizer::sanitize([
             'message' => 'Pseudo du foyer mis a jour.',
             'household' => [
                 'id' => $updatedMembership->id,
@@ -234,6 +235,6 @@ class AuthController extends Controller
                 'role' => $updatedMembership->pivot->role,
                 'nickname' => $updatedMembership->pivot->nickname,
             ],
-        ]);
+        ]));
     }
 }

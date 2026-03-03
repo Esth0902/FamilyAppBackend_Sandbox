@@ -1,11 +1,13 @@
 <?php
 
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\CalendarController;
 use App\Http\Controllers\Api\HouseholdController;
 use App\Http\Controllers\Api\MealPollController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\RecipeController;
 use App\Http\Controllers\Api\ShoppingListController;
+use App\Http\Controllers\Api\TaskController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\Route;
@@ -62,6 +64,23 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'must.change.password'])->gro
     Route::post('/meal-polls/{poll}/votes/sync', [MealPollController::class, 'syncVotes']);
     Route::post('/meal-polls/{poll}/close', [MealPollController::class, 'close']);
     Route::post('/meal-polls/{poll}/validate', [MealPollController::class, 'validateResults']);
+
+    // Tasks
+    Route::get('/tasks/board', [TaskController::class, 'board']);
+    Route::post('/tasks/templates', [TaskController::class, 'storeTemplate']);
+    Route::patch('/tasks/templates/{template}', [TaskController::class, 'updateTemplate']);
+    Route::delete('/tasks/templates/{template}', [TaskController::class, 'destroyTemplate']);
+    Route::post('/tasks/instances', [TaskController::class, 'storeInstance']);
+    Route::patch('/tasks/instances/{instance}', [TaskController::class, 'updateInstance']);
+    Route::post('/tasks/instances/{instance}/validate', [TaskController::class, 'validateInstance']);
+
+    // Calendar
+    Route::get('/calendar/board', [CalendarController::class, 'board']);
+    Route::post('/calendar/events', [CalendarController::class, 'storeEvent']);
+    Route::patch('/calendar/events/{event}', [CalendarController::class, 'updateEvent']);
+    Route::delete('/calendar/events/{event}', [CalendarController::class, 'destroyEvent']);
+    Route::patch('/calendar/meal-plan/{mealPlan}', [CalendarController::class, 'updateMealPlan']);
+    Route::delete('/calendar/meal-plan/{mealPlan}', [CalendarController::class, 'destroyMealPlan']);
 
     // Notifications
     Route::get('/notifications/pending', [NotificationController::class, 'pending']);

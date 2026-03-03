@@ -13,6 +13,7 @@ class MealPlan extends Model
         'recipe_id',
         'date',
         'meal_type',
+        'custom_title',
         'servings',
         'note',
     ];
