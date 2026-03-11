@@ -55,11 +55,14 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'must.change.password'])->gro
 
     // Recipes - CRUD (standard REST)
     Route::apiResource('recipes', RecipeController::class);
+    Route::post('/recipes/{recipe}/save', [RecipeController::class, 'saveToMine']);
+    Route::delete('/recipes/{recipe}/save', [RecipeController::class, 'removeFromMine']);
 
     // Meal Polls
     Route::get('/meal-polls/active', [MealPollController::class, 'active']);
     Route::get('/meal-polls/history', [MealPollController::class, 'history']);
     Route::post('/meal-polls', [MealPollController::class, 'store']);
+    Route::patch('/meal-polls/{poll}', [MealPollController::class, 'update']);
     Route::post('/meal-polls/{poll}/vote', [MealPollController::class, 'vote']);
     Route::post('/meal-polls/{poll}/votes/sync', [MealPollController::class, 'syncVotes']);
     Route::post('/meal-polls/{poll}/close', [MealPollController::class, 'close']);
@@ -79,6 +82,7 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'must.change.password'])->gro
     Route::post('/calendar/events', [CalendarController::class, 'storeEvent']);
     Route::patch('/calendar/events/{event}', [CalendarController::class, 'updateEvent']);
     Route::delete('/calendar/events/{event}', [CalendarController::class, 'destroyEvent']);
+    Route::post('/calendar/meal-plan', [CalendarController::class, 'storeMealPlan']);
     Route::patch('/calendar/meal-plan/{mealPlan}', [CalendarController::class, 'updateMealPlan']);
     Route::delete('/calendar/meal-plan/{mealPlan}', [CalendarController::class, 'destroyMealPlan']);
 

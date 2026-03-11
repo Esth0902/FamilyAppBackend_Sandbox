@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Http\Controllers\Api\Concerns\ResolvesDateRange;
+use App\Http\Controllers\Api\Concerns\ResolvesHouseholdContext;
 use App\Http\Controllers\Controller;
 use App\Models\Event;
 use App\Models\Household;
@@ -17,13 +19,16 @@ use Illuminate\Validation\ValidationException;
 
 class CalendarController extends Controller
 {
+    use ResolvesDateRange;
+    use ResolvesHouseholdContext;
+
     private const DEFAULT_RANGE_DAYS = 42;
     private const MAX_RANGE_DAYS = 45;
 
     public function board(Request $request): JsonResponse
     {
         [$household, $role] = $this->resolveHouseholdWithRole($request);
-        [$fromDate, $toDate] = $this->resolveDateRange($request);
+        [$fromDate, $toDate] = $this->resolveDateRange($request, self::DEFAULT_RANGE_DAYS, self::MAX_RANGE_DAYS);
         $currentUserId = (int) $request->user()->id;
 
         $calendarEnabled = $this->isCalendarModuleEnabled($household);
@@ -180,66 +185,61 @@ class CalendarController extends Controller
         ]);
     }
 
+    public function storeMealPlan(Request $request): JsonResponse
+    {
+        [$household, $role] = $this->resolveHouseholdWithRole($request);
+        $this->ensureParentRole($role);
+
+        $validated = $this->validateMealPlanPayload($request);
+        [$mealPlanUpdatePayload, $recipeId, $servings] = $this->resolveMealPlanPayload(
+            $validated,
+            $household
+        );
+
+        $mealPlan = MealPlan::query()->updateOrCreate(
+            [
+                'household_id' => $household->id,
+                'date' => (string) $validated['date'],
+                'meal_type' => (string) $validated['meal_type'],
+            ],
+            $mealPlanUpdatePayload
+        );
+
+        $mealPlan->items()->delete();
+        if ($recipeId !== null) {
+            $mealPlan->items()->create([
+                'recipe_id' => $recipeId,
+                'servings' => $servings,
+                'position' => 1,
+            ]);
+        }
+
+        $mealPlan->load(['items.recipe:id,title,type']);
+
+        return response()->json([
+            'message' => $mealPlan->wasRecentlyCreated ? 'Meal plan cree.' : 'Meal plan mis a jour.',
+            'meal_plan' => $this->toMealPlanPayload($mealPlan),
+        ], $mealPlan->wasRecentlyCreated ? 201 : 200);
+    }
+
     public function updateMealPlan(Request $request, MealPlan $mealPlan): JsonResponse
     {
         [$household, $role] = $this->resolveHouseholdWithRole($request);
         $this->ensureParentRole($role);
         $this->ensureMealPlanBelongsToHousehold($mealPlan, $household);
 
-        $validated = $request->validate([
-            'date' => ['required', 'date_format:Y-m-d'],
-            'meal_type' => ['required', 'string', 'in:matin,midi,soir'],
-            'recipe_id' => ['nullable', 'integer', 'exists:recipes,id', 'required_without:custom_title'],
-            'custom_title' => ['nullable', 'string', 'max:120', 'required_without:recipe_id'],
-            'servings' => ['nullable', 'integer', 'min:1', 'max:30'],
-            'note' => ['nullable', 'string', 'max:255'],
-        ]);
-
-        $recipeId = !empty($validated['recipe_id']) ? (int) $validated['recipe_id'] : null;
-        $customTitle = trim((string) ($validated['custom_title'] ?? ''));
-
-        if ($recipeId === null && $customTitle === '') {
-            throw ValidationException::withMessages([
-                'recipe_id' => ['Choisissez une recette ou saisissez un repas libre.'],
-            ]);
-        }
-
-        if ($recipeId !== null) {
-            $recipe = Recipe::query()
-                ->where('household_id', $household->id)
-                ->where('id', $recipeId)
-                ->first();
-
-            if (!$recipe) {
-                throw ValidationException::withMessages([
-                    'recipe_id' => ['La recette selectionnee n appartient pas au foyer.'],
-                ]);
-            }
-        }
-
-        $mealPlanUpdatePayload = [
-            'date' => (string) $validated['date'],
-            'meal_type' => (string) $validated['meal_type'],
-            'note' => $validated['note'] ?? null,
-        ];
-
-        if (Schema::hasColumn('meal_plans', 'custom_title')) {
-            $mealPlanUpdatePayload['custom_title'] = $customTitle !== '' ? $customTitle : null;
-        }
-
-        if (Schema::hasColumn('meal_plans', 'recipe_id')) {
-            $mealPlanUpdatePayload['recipe_id'] = $recipeId;
-        }
-        if (Schema::hasColumn('meal_plans', 'servings')) {
-            $mealPlanUpdatePayload['servings'] = (int) ($validated['servings'] ?? 4);
-        }
+        $validated = $this->validateMealPlanPayload($request);
+        [$mealPlanUpdatePayload, $recipeId, $servings] = $this->resolveMealPlanPayload(
+            $validated,
+            $household
+        );
 
         $mealPlan->update($mealPlanUpdatePayload);
         $mealPlan->items()->delete();
         if ($recipeId !== null) {
             $mealPlan->items()->create([
                 'recipe_id' => $recipeId,
-                'servings' => (int) ($validated['servings'] ?? 4),
+                'servings' => $servings,
                 'position' => 1,
             ]);
         }
@@ -266,57 +266,72 @@ class CalendarController extends Controller
         ]);
     }
 
-    private function resolveHouseholdWithRole(Request $request): array
+    private function validateMealPlanPayload(Request $request): array
     {
-        $household = $request->user()->households()->first();
-        if (!$household) {
-            throw ValidationException::withMessages([
-                'household' => ['Aucun foyer associe a cet utilisateur.'],
-            ]);
-        }
-
-        $role = (string) ($household->pivot->role ?? User::ROLE_CHILD);
-
-        return [$household, $role];
+        return $request->validate([
+            'date' => ['required', 'date_format:Y-m-d'],
+            'meal_type' => ['required', 'string', 'in:matin,midi,soir'],
+            'recipe_id' => ['nullable', 'integer', 'exists:recipes,id', 'required_without:custom_title'],
+            'custom_title' => ['nullable', 'string', 'max:120', 'required_without:recipe_id'],
+            'servings' => ['nullable', 'integer', 'min:1', 'max:30'],
+            'note' => ['nullable', 'string', 'max:255'],
+        ]);
     }
 
-    private function resolveDateRange(Request $request): array
+    /**
+     * @return array{0: array<string, mixed>, 1: int|null, 2: int}
+     */
+    private function resolveMealPlanPayload(array $validated, Household $household): array
     {
-        $fromInput = (string) ($request->query('from') ?? now()->toDateString());
-        $toInput = (string) ($request->query('to') ?? now()->copy()->addDays(self::DEFAULT_RANGE_DAYS - 1)->toDateString());
+        $recipeId = !empty($validated['recipe_id']) ? (int) $validated['recipe_id'] : null;
+        $customTitle = trim((string) ($validated['custom_title'] ?? ''));
 
-        try {
-            $fromDate = Carbon::createFromFormat('Y-m-d', $fromInput);
-            $toDate = Carbon::createFromFormat('Y-m-d', $toInput);
-        } catch (\Throwable) {
+        if ($recipeId === null && $customTitle === '') {
             throw ValidationException::withMessages([
-                'dates' => ['Renseignez une date de debut et de fin valides (YYYY-MM-DD).'],
+                'recipe_id' => ['Choisissez une recette ou saisissez un repas libre.'],
             ]);
         }
 
-        if (!$fromDate || $fromDate->toDateString() !== $fromInput || !$toDate || $toDate->toDateString() !== $toInput) {
+        if ($recipeId !== null) {
+            $recipe = Recipe::query()
+                ->mineForHousehold((int)$household->id)
+                ->where('id', $recipeId)
+                ->first();
+
+            if (!$recipe) {
+                throw ValidationException::withMessages([
+                    'recipe_id' => ['La recette selectionnee n appartient pas au foyer.'],
+                ]);
+            }
+        }
+
+        if (!Schema::hasColumn('meal_plans', 'custom_title') && $recipeId === null) {
             throw ValidationException::withMessages([
-                'dates' => ['Renseignez une date de debut et de fin valides (YYYY-MM-DD).'],
+                'custom_title' => ['La saisie libre n est pas disponible sur ce schema.'],
             ]);
         }
 
-        $fromDate = $fromDate->startOfDay();
-        $toDate = $toDate->startOfDay();
+        $servings = (int) ($validated['servings'] ?? 4);
+        $mealPlanUpdatePayload = [
+            'household_id' => $household->id,
+            'date' => (string) $validated['date'],
+            'meal_type' => (string) $validated['meal_type'],
+            'note' => $validated['note'] ?? null,
+        ];
 
-        if ($toDate->lt($fromDate)) {
-            throw ValidationException::withMessages([
-                'dates' => ['La date de fin doit etre superieure ou egale a la date de debut.'],
-            ]);
+        if (Schema::hasColumn('meal_plans', 'custom_title')) {
+            $mealPlanUpdatePayload['custom_title'] = $customTitle !== '' ? $customTitle : null;
         }
 
-        $rangeDays = $fromDate->diffInDays($toDate) + 1;
-        if ($rangeDays > self::MAX_RANGE_DAYS) {
-            throw ValidationException::withMessages([
-                'dates' => ['La periode demandee est trop longue.'],
-            ]);
+        if (Schema::hasColumn('meal_plans', 'recipe_id')) {
+            $mealPlanUpdatePayload['recipe_id'] = $recipeId;
         }
 
-        return [$fromDate, $toDate];
+        if (Schema::hasColumn('meal_plans', 'servings')) {
+            $mealPlanUpdatePayload['servings'] = $servings;
+        }
+
+        return [$mealPlanUpdatePayload, $recipeId, $servings];
     }
 
     private function isCalendarModuleEnabled(Household $household): bool
@@ -342,13 +357,6 @@ class CalendarController extends Controller
             ->first();
 
         return is_array($settings?->calendar_config) ? $settings->calendar_config : [];
-    }
-
-    private function ensureParentRole(string $role): void
-    {
-        if ($role !== User::ROLE_PARENT) {
-            abort(403, 'Action reservee aux parents.');
-        }
     }
 
     private function ensureEventBelongsToHousehold(Event $event, Household $household): void

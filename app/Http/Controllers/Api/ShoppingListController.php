@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Http\Controllers\Api\Concerns\ResolvesHouseholdContext;
 use App\Http\Controllers\Controller;
 use App\Models\Household;
 use App\Models\Ingredient;
@@ -19,6 +20,8 @@ use Illuminate\Validation\ValidationException;
 
 class ShoppingListController extends Controller
 {
+    use ResolvesHouseholdContext;
+
     public function __construct(private readonly RealtimePublisher $realtimePublisher)
     {
     }
@@ -96,15 +99,18 @@ class ShoppingListController extends Controller
         [$household, $role] = $this->resolveHouseholdWithRole($request);
         $this->ensureShoppingModuleEnabled($household);
         $this->ensureListBelongsToHousehold($list, $household);
+        $canManage = $role === User::ROLE_PARENT;
 
         [$fromDate, $toDate] = $this->resolvePlannedMealsRange();
         $plannedRecipes = $this->buildPlannedRecipeSuggestions((int)$household->id, $fromDate, $toDate, $list);
 
         return response()->json([
-            'can_manage' => $role === User::ROLE_PARENT,
+            'can_manage' => $canManage,
+            'can_add_manual_items' => $canManage || $role === User::ROLE_CHILD,
             'list' => $list->load([
                 'items' => fn($query) => $query->orderBy('is_checked')->orderBy('name'),
                 'items.checkedBy:id,name',
+                'items.createdBy:id,name',
             ]),
             'planned_meals_from' => $fromDate->toDateString(),
             'planned_meals_to' => $toDate->toDateString(),
@@ -142,7 +148,6 @@ class ShoppingListController extends Controller
         [$household, $role] = $this->resolveHouseholdWithRole($request);
         $this->ensureShoppingModuleEnabled($household);
         $this->ensureListBelongsToHousehold($list, $household);
-        $this->ensureParentRole($role);
 
         $validated = $request->validate([
             'ingredient_id' => 'nullable|integer|exists:ingredients,id',
@@ -163,7 +168,19 @@ class ShoppingListController extends Controller
             ? (bool)$validated['is_manual_addition']
             : true;
 
-        $item = $this->upsertListItem($list, $normalizedPayload, $isManual);
+        if ($role !== User::ROLE_PARENT && $role !== User::ROLE_CHILD) {
+            abort(403, 'Rôle non autorisé pour modifier la liste de courses.');
+        }
+        if ($role === User::ROLE_CHILD && !$isManual) {
+            abort(403, 'Un enfant peut uniquement ajouter un élément manuel.');
+        }
+
+        $item = $this->upsertListItem(
+            $list,
+            $normalizedPayload,
+            $isManual,
+            (int)$request->user()->id
+        );
 
         $this->realtimePublisher->publishHousehold(
             householdId: (int)$household->id,
@@ -176,7 +193,7 @@ class ShoppingListController extends Controller
             ],
         );
 
-        return response()->json($item->load('checkedBy:id,name'), 201);
+        return response()->json($item->load('checkedBy:id,name', 'createdBy:id,name'), 201);
     }
 
     public function updateItem(Request $request, ShoppingListItem $item): JsonResponse
@@ -207,7 +224,7 @@ class ShoppingListController extends Controller
         }
 
         if (count($updates) === 0) {
-            return response()->json($item);
+            return response()->json($item->load('checkedBy:id,name', 'createdBy:id,name'));
         }
 
         $item->update($updates);
@@ -223,7 +240,7 @@ class ShoppingListController extends Controller
             ],
         );
 
-        return response()->json($item->fresh()->load('checkedBy:id,name'));
+        return response()->json($item->fresh()->load('checkedBy:id,name', 'createdBy:id,name'));
     }
 
     public function removeItem(Request $request, ShoppingListItem $item): JsonResponse
@@ -250,19 +267,6 @@ class ShoppingListController extends Controller
         return response()->json(['message' => 'Element supprime']);
     }
 
-    private function resolveHouseholdWithRole(Request $request): array
-    {
-        $household = $request->user()->households()->first();
-        if (!$household) {
-            throw ValidationException::withMessages([
-                'household' => ['Aucun foyer associe a cet utilisateur.'],
-            ]);
-        }
-
-        $role = (string)($household->pivot->role ?? User::ROLE_CHILD);
-        return [$household, $role];
-    }
-
     private function ensureShoppingModuleEnabled(Household $household): void
     {
         $mealSettings = MealSetting::query()
@@ -271,13 +275,6 @@ class ShoppingListController extends Controller
 
         if ($mealSettings && !$mealSettings->enable_shopping_list) {
             abort(403, 'Le module liste de courses est desactive pour ce foyer.');
-        }
-    }
-
-    private function ensureParentRole(string $role): void
-    {
-        if ($role !== User::ROLE_PARENT) {
-            abort(403, 'Action reservee aux parents.');
         }
     }
 
@@ -319,7 +316,12 @@ class ShoppingListController extends Controller
         ];
     }
 
-    private function upsertListItem(ShoppingList $list, array $payload, bool $isManualAddition): ShoppingListItem
+    private function upsertListItem(
+        ShoppingList $list,
+        array $payload,
+        bool $isManualAddition,
+        int $actorUserId
+    ): ShoppingListItem
     {
         $existingItem = null;
 
@@ -346,6 +348,9 @@ class ShoppingListController extends Controller
                 'unit' => $payload['unit'],
                 'quantity' => $mergedQuantity,
                 'is_manual_addition' => (bool)$existingItem->is_manual_addition && $isManualAddition,
+                'created_by_user_id' => (int)($existingItem->created_by_user_id ?? 0) > 0
+                    ? (int)$existingItem->created_by_user_id
+                    : $actorUserId,
             ]);
 
             return $existingItem->fresh();
@@ -358,6 +363,7 @@ class ShoppingListController extends Controller
             'unit' => $payload['unit'],
             'is_checked' => false,
             'is_manual_addition' => $isManualAddition,
+            'created_by_user_id' => $actorUserId,
         ]);
     }
 

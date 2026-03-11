@@ -2,8 +2,8 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Http\Controllers\Api\Concerns\ResolvesHouseholdContext;
 use App\Http\Controllers\Controller;
-use App\Models\Household;
 use App\Models\MealPlan;
 use App\Models\MealPoll;
 use App\Models\MealPollOption;
@@ -23,6 +23,7 @@ use Illuminate\Support\Facades\Schema;
 class MealPollController extends Controller
 {
     use AuthorizesRequests;
+    use ResolvesHouseholdContext;
 
     public function __construct(
         private readonly PollNotificationService $notificationService,
@@ -127,7 +128,7 @@ class MealPollController extends Controller
 
         $recipeIds = collect($validated['recipe_ids'])->map(fn($id) => (int)$id)->unique()->values();
         $ownedRecipeCount = Recipe::query()
-            ->where('household_id', $household->id)
+            ->mineForHousehold((int)$household->id)
             ->whereIn('id', $recipeIds)
             ->count();
 
@@ -181,6 +182,93 @@ class MealPollController extends Controller
             'message' => 'Sondage ouvert avec succes.',
             'poll' => $this->toPollPayload($poll, $user),
         ], 201);
+    }
+
+    public function update(Request $request, MealPoll $poll): JsonResponse
+    {
+        $this->authorize('update', $poll);
+
+        if ($poll->status !== 'open') {
+            return response()->json(['message' => 'Seul un sondage ouvert peut être modifié.'], 422);
+        }
+
+        $validated = $request->validate([
+            'title' => 'nullable|string|max:150',
+            'recipe_ids' => 'required|array|min:2|max:20',
+            'recipe_ids.*' => 'required|integer|exists:recipes,id',
+            'duration_hours' => 'nullable|integer|min:1|max:168',
+            'max_votes_per_user' => 'nullable|integer|min:1|max:20',
+            'planning_start_date' => 'nullable|date_format:Y-m-d|required_with:planning_end_date',
+            'planning_end_date' => 'nullable|date_format:Y-m-d|required_with:planning_start_date|after_or_equal:planning_start_date',
+        ]);
+
+        $mealSettings = MealSetting::query()->where('household_id', $poll->household_id)->first();
+        if ($mealSettings && !$mealSettings->enable_polls) {
+            return response()->json(['message' => 'Le module Sondages est desactive pour ce foyer.'], 403);
+        }
+
+        $recipeIds = collect($validated['recipe_ids'])->map(fn($id) => (int)$id)->unique()->values();
+        $ownedRecipeCount = Recipe::query()
+            ->mineForHousehold((int)$poll->household_id)
+            ->whereIn('id', $recipeIds)
+            ->count();
+
+        if ($ownedRecipeCount !== $recipeIds->count()) {
+            return response()->json(['message' => 'Certaines recettes ne font pas partie de votre foyer.'], 422);
+        }
+
+        $durationHours = (int)($validated['duration_hours'] ?? ($mealSettings?->poll_duration ?? 24));
+        $maxVotesPerUser = (int)($validated['max_votes_per_user'] ?? ($mealSettings?->max_votes_per_user ?? 3));
+        $maxVotesPerUser = max(1, min($maxVotesPerUser, 20));
+        $planningStartDate = $validated['planning_start_date'] ?? now()->toDateString();
+        $planningEndDate = $validated['planning_end_date'] ?? now()->addDays(6)->toDateString();
+
+        if ($maxVotesPerUser > $recipeIds->count()) {
+            return response()->json([
+                'message' => 'Le max de votes ne peut pas depasser le nombre de plats selectionnes.',
+            ], 422);
+        }
+
+        DB::transaction(function () use ($poll, $validated, $recipeIds, $durationHours, $maxVotesPerUser, $planningStartDate, $planningEndDate): void {
+            $poll->update([
+                'title' => trim((string)($validated['title'] ?? '')) ?: null,
+                // Lors d'une correction en cours de vote, la durée repart à partir de maintenant.
+                'ends_at' => now()->addHours($durationHours),
+                'planning_start_date' => $planningStartDate,
+                'planning_end_date' => $planningEndDate,
+                'max_votes_per_user' => $maxVotesPerUser,
+            ]);
+
+            $existingByRecipe = $poll->options()
+                ->get()
+                ->keyBy(static fn(MealPollOption $option): int => (int)$option->recipe_id);
+
+            $recipeIds->each(function (int $recipeId) use ($poll, $existingByRecipe): void {
+                if ($existingByRecipe->has($recipeId)) {
+                    return;
+                }
+
+                $poll->options()->create([
+                    'recipe_id' => $recipeId,
+                ]);
+            });
+
+            $poll->options()
+                ->whereNotIn('recipe_id', $recipeIds->all())
+                ->delete();
+        });
+
+        $poll->refresh()->load(['options.recipe', 'votes']);
+        $this->emitPollRealtime(
+            poll: $poll,
+            type: 'poll.updated',
+            actorUserId: (int)$request->user()->id,
+        );
+
+        return response()->json([
+            'message' => 'Sondage mis a jour.',
+            'poll' => $this->toPollPayload($poll, $request->user()),
+        ]);
     }
 
     public function vote(Request $request, MealPoll $poll): JsonResponse
@@ -380,7 +468,7 @@ class MealPollController extends Controller
         }
 
         $allowedRecipeIds = Recipe::query()
-            ->where('household_id', $poll->household_id)
+            ->mineForHousehold((int)$poll->household_id)
             ->whereIn('id', $selectedRecipeIds)
             ->pluck('id');
 
@@ -458,11 +546,6 @@ class MealPollController extends Controller
             'vote_stats' => $voteStats,
             'poll' => $this->toPollPayload($poll, $request->user()),
         ]);
-    }
-
-    private function resolveCurrentHousehold(User $user): ?Household
-    {
-        return $user->households()->first();
     }
 
     private function resolveOptionForVote(MealPoll $poll, array $validated): ?MealPollOption

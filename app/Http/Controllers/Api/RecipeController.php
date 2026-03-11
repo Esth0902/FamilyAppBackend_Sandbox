@@ -2,24 +2,25 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Http\Controllers\Api\Concerns\ResolvesHouseholdContext;
 use App\Http\Controllers\Controller;
 use App\Models\Ingredient;
 use App\Models\MealSetting;
 use App\Models\Recipe;
 use App\Services\AiService;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class RecipeController extends Controller
 {
     use AuthorizesRequests;
+    use ResolvesHouseholdContext;
 
     protected AiService $aiService;
 
     private const RECIPE_TYPES = [
-        'petit-déjeuner', 'entrée', 'plat principal', 'dessert', 'collation', 'boisson', 'autre'
+        'petit-déjeuner', 'entrée', 'plat principal', 'dessert', 'collation', 'boisson', 'autre',
     ];
 
     private const INGREDIENT_CATEGORIES = [
@@ -42,18 +43,36 @@ class RecipeController extends Controller
 
     public function index(Request $request)
     {
-        $userId = Auth::id();
+        $household = $this->resolveCurrentHousehold($request->user());
+        if (!$household) {
+            return response()->json(['message' => 'Aucun foyer associé'], 403);
+        }
 
-        $recipes = Recipe::with(['ingredients', 'household.mealSettings'])
-            ->whereHas('household.users', function ($query) use ($userId) {
-                $query->where('users.id', $userId);
-            })
+        $scope = (string)$request->query('scope', 'mine');
+        if (!in_array($scope, ['mine', 'all'], true)) {
+            return response()->json(['message' => 'Le paramètre scope doit être "mine" ou "all".'], 422);
+        }
+
+        $householdId = (int)$household->id;
+        $savedGlobalRecipeIds = $this->resolveSavedGlobalRecipeIds($householdId);
+
+        $query = Recipe::query()->with(['ingredients', 'household.mealSettings']);
+
+        if ($scope === 'all') {
+            $query->visibleForHousehold($householdId);
+        } else {
+            $query->mineForHousehold($householdId);
+        }
+
+        $recipes = $query
             ->orderBy('title', 'asc')
             ->get();
 
-        $formattedRecipes = $recipes->map(function (Recipe $recipe) use ($request) {
-            $targetServings = $this->resolveTargetServings($request, $recipe);
-            return $this->applyServingsView($recipe, $targetServings);
+        $formattedRecipes = $recipes->map(function (Recipe $recipe) use ($request, $householdId, $savedGlobalRecipeIds) {
+            $targetServings = $this->resolveTargetServings($request, $recipe, $householdId);
+            $decorated = $this->decorateRecipeForHousehold($recipe, $householdId, $savedGlobalRecipeIds);
+
+            return $this->applyServingsView($decorated, $targetServings);
         })->values();
 
         return response()->json($formattedRecipes);
@@ -61,6 +80,11 @@ class RecipeController extends Controller
 
     public function show(Request $request, $id)
     {
+        $household = $this->resolveCurrentHousehold($request->user());
+        if (!$household) {
+            return response()->json(['message' => 'Aucun foyer associé'], 403);
+        }
+
         $recipe = Recipe::with(['ingredients', 'household.mealSettings'])->find($id);
 
         if (!$recipe) {
@@ -69,8 +93,70 @@ class RecipeController extends Controller
 
         $this->authorize('view', $recipe);
 
-        $targetServings = $this->resolveTargetServings($request, $recipe);
-        return response()->json($this->applyServingsView($recipe, $targetServings));
+        $householdId = (int)$household->id;
+        $savedGlobalRecipeIds = $this->resolveSavedGlobalRecipeIds($householdId);
+        $targetServings = $this->resolveTargetServings($request, $recipe, $householdId);
+        $decorated = $this->decorateRecipeForHousehold($recipe, $householdId, $savedGlobalRecipeIds);
+
+        return response()->json($this->applyServingsView($decorated, $targetServings));
+    }
+
+    public function saveToMine(Request $request, Recipe $recipe)
+    {
+        $household = $this->resolveCurrentHousehold($request->user());
+        if (!$household) {
+            return response()->json(['message' => 'Aucun foyer associé'], 403);
+        }
+
+        $this->authorize('view', $recipe);
+
+        if (!(bool)$recipe->is_global) {
+            return response()->json(['message' => 'Seules les recettes globales peuvent être ajoutées.'], 422);
+        }
+
+        $household->savedRecipes()->syncWithoutDetaching([
+            (int)$recipe->id => ['added_by_user_id' => (int)$request->user()->id],
+        ]);
+
+        $recipe->loadMissing(['ingredients', 'household.mealSettings']);
+
+        $householdId = (int)$household->id;
+        $savedGlobalRecipeIds = $this->resolveSavedGlobalRecipeIds($householdId);
+        $targetServings = $this->resolveTargetServings($request, $recipe, $householdId);
+        $decorated = $this->decorateRecipeForHousehold($recipe, $householdId, $savedGlobalRecipeIds);
+
+        return response()->json([
+            'message' => 'Recette globale ajoutée à Mes recettes.',
+            'recipe' => $this->applyServingsView($decorated, $targetServings),
+        ]);
+    }
+
+    public function removeFromMine(Request $request, Recipe $recipe)
+    {
+        $household = $this->resolveCurrentHousehold($request->user());
+        if (!$household) {
+            return response()->json(['message' => 'Aucun foyer associé'], 403);
+        }
+
+        $this->authorize('view', $recipe);
+
+        if (!(bool)$recipe->is_global) {
+            return response()->json(['message' => 'Seules les recettes globales peuvent être retirées.'], 422);
+        }
+
+        $household->savedRecipes()->detach((int)$recipe->id);
+
+        $recipe->loadMissing(['ingredients', 'household.mealSettings']);
+
+        $householdId = (int)$household->id;
+        $savedGlobalRecipeIds = $this->resolveSavedGlobalRecipeIds($householdId);
+        $targetServings = $this->resolveTargetServings($request, $recipe, $householdId);
+        $decorated = $this->decorateRecipeForHousehold($recipe, $householdId, $savedGlobalRecipeIds);
+
+        return response()->json([
+            'message' => 'Recette globale retirée de Mes recettes.',
+            'recipe' => $this->applyServingsView($decorated, $targetServings),
+        ]);
     }
 
     public function suggestIdeas(Request $request)
@@ -78,7 +164,7 @@ class RecipeController extends Controller
         $validated = $request->validate([
             'preferences' => 'nullable|string|max:500',
             'count' => 'nullable|integer|max:5',
-            'intent' => 'nullable|string|in:ideas,specific'
+            'intent' => 'nullable|string|in:ideas,specific',
         ]);
 
         $text = $validated['preferences'] ?? '';
@@ -128,9 +214,9 @@ class RecipeController extends Controller
         $this->authorize('create', [Recipe::class, (int)$validated['household_id']]);
 
         return DB::transaction(function () use ($validated) {
-
             $recipe = Recipe::create([
                 'household_id' => (int)$validated['household_id'],
+                'is_global' => false,
                 'title' => $validated['title'],
                 'type' => $validated['type'],
                 'description' => $validated['description'],
@@ -169,7 +255,7 @@ class RecipeController extends Controller
 
     public function store(Request $request)
     {
-        $household = $request->user()->households()->first();
+        $household = $this->resolveCurrentHousehold($request->user());
         if (!$household) {
             return response()->json(['message' => 'Aucun foyer associé'], 403);
         }
@@ -191,9 +277,9 @@ class RecipeController extends Controller
         $this->authorize('create', [Recipe::class, $household->id]);
 
         return DB::transaction(function () use ($validated, $household) {
-
             $recipe = Recipe::create([
-                'household_id' => $household->id,
+                'household_id' => (int)$household->id,
+                'is_global' => false,
                 'title' => $validated['title'],
                 'type' => $validated['type'],
                 'description' => $validated['description'] ?? '',
@@ -250,7 +336,6 @@ class RecipeController extends Controller
         ]);
 
         return DB::transaction(function () use ($recipe, $validated) {
-
             $recipe->update([
                 'title' => $validated['title'],
                 'type' => $validated['type'],
@@ -297,6 +382,7 @@ class RecipeController extends Controller
         $this->authorize('delete', $recipe);
 
         return DB::transaction(function () use ($recipe) {
+            $recipe->savedByHouseholds()->detach();
             $recipe->ingredients()->detach();
             $recipe->delete();
 
@@ -307,7 +393,7 @@ class RecipeController extends Controller
     private function normName(string $name): string
     {
         $name = mb_strtolower(trim($name));
-        $name = preg_replace('/\([^)]*\)/u', '', $name); // enlève parenthèses
+        $name = preg_replace('/\([^)]*\)/u', '', $name);
         $name = preg_replace('/[.,;:!?"]/u', '', $name);
         $name = preg_replace('/\s+/u', ' ', $name);
         return trim($name);
@@ -327,7 +413,7 @@ class RecipeController extends Controller
         return in_array($category, self::INGREDIENT_CATEGORIES, true) ? $category : 'autre';
     }
 
-    private function resolveTargetServings(Request $request, Recipe $recipe): int
+    private function resolveTargetServings(Request $request, Recipe $recipe, ?int $fallbackHouseholdId = null): int
     {
         $queryServings = $request->query('servings');
         if (is_numeric($queryServings)) {
@@ -338,6 +424,10 @@ class RecipeController extends Controller
         }
 
         $householdDefault = (int)($recipe->household?->mealSettings?->default_servings ?? 0);
+        if ($householdDefault < 1 && $fallbackHouseholdId) {
+            $householdDefault = $this->resolveHouseholdDefaultServings($fallbackHouseholdId);
+        }
+
         if ($householdDefault >= 1) {
             return $householdDefault;
         }
@@ -368,6 +458,27 @@ class RecipeController extends Controller
             $ingredient->setAttribute('base_quantity', $baseQuantity);
             $ingredient->setAttribute('scaled_quantity', round($baseQuantity * $scaleFactor, 2));
         });
+
+        return $recipe;
+    }
+
+    private function resolveSavedGlobalRecipeIds(int $householdId): array
+    {
+        return DB::table('household_recipe_bookmarks')
+            ->where('household_id', $householdId)
+            ->pluck('recipe_id')
+            ->map(fn($id) => (int)$id)
+            ->values()
+            ->all();
+    }
+
+    private function decorateRecipeForHousehold(Recipe $recipe, int $householdId, array $savedGlobalRecipeIds): Recipe
+    {
+        $isOwnedByHousehold = (int)($recipe->household_id ?? 0) === $householdId;
+        $isSavedGlobal = (bool)$recipe->is_global && in_array((int)$recipe->id, $savedGlobalRecipeIds, true);
+
+        $recipe->setAttribute('is_owned_by_household', $isOwnedByHousehold);
+        $recipe->setAttribute('is_in_my_recipes', $isOwnedByHousehold || $isSavedGlobal);
 
         return $recipe;
     }

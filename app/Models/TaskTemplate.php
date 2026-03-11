@@ -13,16 +13,22 @@ class TaskTemplate extends Model
         'name',
         'description',
         'recurrence',
+        'start_date',
         'recurrence_days',
         'is_rotation',
         'rotation_cycle_weeks',
+        'is_inter_household_alternating',
+        'inter_household_week_start',
         'fixed_user_id',
     ];
 
     protected $casts = [
+        'start_date' => 'date',
         'recurrence_days' => 'array',
         'is_rotation' => 'boolean',
         'rotation_cycle_weeks' => 'integer',
+        'is_inter_household_alternating' => 'boolean',
+        'inter_household_week_start' => 'date',
     ];
 
     public function household(): BelongsTo

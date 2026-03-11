@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class Household extends Model
 {
@@ -24,6 +25,13 @@ class Household extends Model
     public function recipes()
     {
         return $this->hasMany(Recipe::class);
+    }
+
+    public function savedRecipes(): BelongsToMany
+    {
+        return $this->belongsToMany(Recipe::class, 'household_recipe_bookmarks')
+            ->withPivot('added_by_user_id')
+            ->withTimestamps();
     }
 
     public function settings()

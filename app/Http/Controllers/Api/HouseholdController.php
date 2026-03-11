@@ -10,9 +10,11 @@ use App\Models\HouseholdSetting;
 use App\Models\MealPoll;
 use App\Models\MealPollVote;
 use App\Models\MealSetting;
+use App\Models\TaskInstance;
 use App\Models\TaskTemplate;
 use App\Support\JsonUtf8Sanitizer;
 use App\Models\User;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -26,6 +28,8 @@ class HouseholdController extends Controller
 {
     private const DIETARY_TAG_TYPES = ['diet', 'allergen', 'dislike', 'restriction', 'cuisine_rule'];
     private const DIETARY_TAG_SIMILARITY_THRESHOLD = 0.10;
+    private const TASK_STATUS_TODO = 'à faire';
+    private const TASK_STATUS_DONE = 'réalisée';
 
     public function store(Request $request)
     {
@@ -74,6 +78,9 @@ class HouseholdController extends Controller
             'modules.tasks.enabled' => 'nullable|boolean',
             'modules.tasks.settings' => 'nullable|array',
             'modules.tasks.settings.reminders_enabled' => 'nullable|boolean',
+            'modules.tasks.settings.alternating_custody_enabled' => 'nullable|boolean',
+            'modules.tasks.settings.custody_change_day' => 'nullable|integer|min:1|max:7',
+            'modules.tasks.settings.custody_home_week_start' => 'nullable|date_format:Y-m-d',
             'modules.tasks.settings.templates' => 'nullable|array',
             'modules.tasks.settings.templates.*.id' => 'nullable|integer',
             'modules.tasks.settings.templates.*.name' => 'required|string|max:255',
@@ -83,6 +90,8 @@ class HouseholdController extends Controller
             'modules.tasks.settings.templates.*.recurrence_days.*' => 'nullable|integer|min:1|max:7',
             'modules.tasks.settings.templates.*.is_rotation' => 'nullable|boolean',
             'modules.tasks.settings.templates.*.rotation_cycle_weeks' => 'nullable|integer|in:1,2',
+            'modules.tasks.settings.templates.*.is_inter_household_alternating' => 'nullable|boolean',
+            'modules.tasks.settings.templates.*.inter_household_week_start' => 'nullable|date_format:Y-m-d',
             'modules.tasks.settings.templates.*.fixed_user_id' => 'nullable|integer',
 
             'modules.calendar.enabled' => 'nullable|boolean',
@@ -240,6 +249,9 @@ class HouseholdController extends Controller
         }
 
         $household->load('users');
+        $settings = HouseholdSetting::query()
+            ->where('household_id', $household->id)
+            ->first();
 
         $polls = MealPoll::query()
             ->where('household_id', $household->id)
@@ -260,6 +272,36 @@ class HouseholdController extends Controller
             ->values();
 
         $favoriteRecipes = $this->buildFavoriteRecipesPayload($household->id);
+        $tasksEnabled = (bool) ($settings?->has_tasks ?? false);
+        $weekStart = now()->startOfWeek(Carbon::MONDAY)->toDateString();
+        $weekEnd = now()->endOfWeek(Carbon::SUNDAY)->toDateString();
+        $tasksSummary = [
+            'enabled' => $tasksEnabled,
+            'range' => [
+                'from' => $weekStart,
+                'to' => $weekEnd,
+            ],
+            'todo_count' => 0,
+            'done_count' => 0,
+            'validated_count' => 0,
+        ];
+
+        if ($tasksEnabled) {
+            $taskInstances = TaskInstance::query()
+                ->whereHas('template', fn($query) => $query->where('household_id', $household->id))
+                ->whereBetween('due_date', [$weekStart, $weekEnd])
+                ->get(['status', 'validated_by_parent']);
+
+            $tasksSummary['todo_count'] = $taskInstances
+                ->filter(fn(TaskInstance $instance): bool => (string) $instance->status === self::TASK_STATUS_TODO)
+                ->count();
+            $tasksSummary['done_count'] = $taskInstances
+                ->filter(fn(TaskInstance $instance): bool => (string) $instance->status === self::TASK_STATUS_DONE)
+                ->count();
+            $tasksSummary['validated_count'] = $taskInstances
+                ->filter(fn(TaskInstance $instance): bool => (bool) $instance->validated_by_parent)
+                ->count();
+        }
 
         return response()->json(JsonUtf8Sanitizer::sanitize([
             'household_name' => $household->name,
@@ -269,6 +311,7 @@ class HouseholdController extends Controller
             'polls_closed' => $closedPolls,
             'polls' => $pollsPayload,
             'favorite_recipes' => $favoriteRecipes,
+            'tasks_summary' => $tasksSummary,
         ]));
     }
 
@@ -400,6 +443,13 @@ class HouseholdController extends Controller
                         'enabled' => (bool)($settings?->has_tasks ?? false),
                         'settings' => [
                             'reminders_enabled' => (bool)($tasksConfig['reminders_enabled'] ?? true),
+                            'alternating_custody_enabled' => (bool)($tasksConfig['alternating_custody_enabled'] ?? false),
+                            'custody_change_day' => $this->normalizeIsoWeekDay($tasksConfig['custody_change_day'] ?? 5, 5),
+                            'custody_home_week_start' => $this->resolveCustodyHomeWeekStart(
+                                (bool)($tasksConfig['alternating_custody_enabled'] ?? false),
+                                $tasksConfig['custody_home_week_start'] ?? null,
+                                $this->normalizeIsoWeekDay($tasksConfig['custody_change_day'] ?? 5, 5)
+                            ),
                             'templates' => $taskTemplates->map(function (TaskTemplate $template): array {
                                 return [
                                     'id' => (int)$template->id,
@@ -409,6 +459,8 @@ class HouseholdController extends Controller
                                     'recurrence_days' => $this->normalizeTaskRecurrenceDays($template->recurrence_days),
                                     'is_rotation' => (bool)$template->is_rotation,
                                     'rotation_cycle_weeks' => $this->normalizeRotationCycleWeeks($template->rotation_cycle_weeks ?? 1),
+                                    'is_inter_household_alternating' => (bool)($template->is_inter_household_alternating ?? false),
+                                    'inter_household_week_start' => optional($template->inter_household_week_start)->toDateString(),
                                     'fixed_user_id' => $template->fixed_user_id ? (int)$template->fixed_user_id : null,
                                 ];
                             })->values(),
@@ -570,6 +622,9 @@ class HouseholdController extends Controller
             'modules.tasks.enabled' => 'nullable|boolean',
             'modules.tasks.settings' => 'nullable|array',
             'modules.tasks.settings.reminders_enabled' => 'nullable|boolean',
+            'modules.tasks.settings.alternating_custody_enabled' => 'nullable|boolean',
+            'modules.tasks.settings.custody_change_day' => 'nullable|integer|min:1|max:7',
+            'modules.tasks.settings.custody_home_week_start' => 'nullable|date_format:Y-m-d',
             'modules.tasks.settings.templates' => 'nullable|array',
             'modules.tasks.settings.templates.*.id' => 'nullable|integer',
             'modules.tasks.settings.templates.*.name' => 'required|string|max:255',
@@ -579,6 +634,8 @@ class HouseholdController extends Controller
             'modules.tasks.settings.templates.*.recurrence_days.*' => 'nullable|integer|min:1|max:7',
             'modules.tasks.settings.templates.*.is_rotation' => 'nullable|boolean',
             'modules.tasks.settings.templates.*.rotation_cycle_weeks' => 'nullable|integer|in:1,2',
+            'modules.tasks.settings.templates.*.is_inter_household_alternating' => 'nullable|boolean',
+            'modules.tasks.settings.templates.*.inter_household_week_start' => 'nullable|date_format:Y-m-d',
             'modules.tasks.settings.templates.*.fixed_user_id' => 'nullable|integer',
 
             'modules.calendar.enabled' => 'nullable|boolean',
@@ -790,6 +847,13 @@ class HouseholdController extends Controller
             }
             $dietaryTags[] = $cleanTag;
         }
+        $alternatingCustodyEnabled = (bool)($tasksSettingsConfig['alternating_custody_enabled'] ?? false);
+        $custodyChangeDay = $this->normalizeIsoWeekDay($tasksSettingsConfig['custody_change_day'] ?? 5, 5);
+        $custodyHomeWeekStart = $this->resolveCustodyHomeWeekStart(
+            $alternatingCustodyEnabled,
+            $tasksSettingsConfig['custody_home_week_start'] ?? null,
+            $custodyChangeDay
+        );
         $taskTemplatesInput = is_array($tasksSettingsConfig['templates'] ?? null)
             ? $tasksSettingsConfig['templates']
             : [];
@@ -819,6 +883,11 @@ class HouseholdController extends Controller
             $rotationCycleWeeks = $rotationEnabled
                 ? $this->normalizeRotationCycleWeeks($template['rotation_cycle_weeks'] ?? 1)
                 : 1;
+            $interHouseholdAlternating = (bool)($template['is_inter_household_alternating'] ?? false);
+            $interHouseholdWeekStart = $this->resolveInterHouseholdWeekStart(
+                $interHouseholdAlternating,
+                $template['inter_household_week_start'] ?? null
+            );
 
             $fixedUserId = null;
             if (isset($template['fixed_user_id']) && is_numeric($template['fixed_user_id'])) {
@@ -844,6 +913,8 @@ class HouseholdController extends Controller
                 'recurrence_days' => $recurrenceDays,
                 'is_rotation' => $rotationEnabled,
                 'rotation_cycle_weeks' => $rotationCycleWeeks,
+                'is_inter_household_alternating' => $interHouseholdAlternating,
+                'inter_household_week_start' => $interHouseholdWeekStart,
                 'fixed_user_id' => $fixedUserId,
             ];
         }
@@ -865,6 +936,9 @@ class HouseholdController extends Controller
                 'enabled' => $tasksEnabled,
                 'settings' => [
                     'reminders_enabled' => (bool)($tasksSettingsConfig['reminders_enabled'] ?? true),
+                    'alternating_custody_enabled' => $alternatingCustodyEnabled,
+                    'custody_change_day' => $custodyChangeDay,
+                    'custody_home_week_start' => $custodyHomeWeekStart,
                     'templates' => $taskTemplates,
                 ],
             ],
@@ -1091,6 +1165,7 @@ class HouseholdController extends Controller
         }
 
         $rotationEnabled = (bool)($template['is_rotation'] ?? false);
+        $interHouseholdAlternating = (bool)($template['is_inter_household_alternating'] ?? false);
 
         $attributes = [
             'name' => (string)($template['name'] ?? ''),
@@ -1101,6 +1176,11 @@ class HouseholdController extends Controller
             'rotation_cycle_weeks' => $rotationEnabled
                 ? $this->normalizeRotationCycleWeeks($template['rotation_cycle_weeks'] ?? 1)
                 : 1,
+            'is_inter_household_alternating' => $interHouseholdAlternating,
+            'inter_household_week_start' => $this->resolveInterHouseholdWeekStart(
+                $interHouseholdAlternating,
+                $template['inter_household_week_start'] ?? null
+            ),
             'fixed_user_id' => $fixedUserId,
         ];
 
@@ -1120,6 +1200,8 @@ class HouseholdController extends Controller
             'recurrence_days' => $this->normalizeTaskRecurrenceDays($taskTemplate->recurrence_days),
             'is_rotation' => (bool)$taskTemplate->is_rotation,
             'rotation_cycle_weeks' => $this->normalizeRotationCycleWeeks($taskTemplate->rotation_cycle_weeks ?? 1),
+            'is_inter_household_alternating' => (bool)($taskTemplate->is_inter_household_alternating ?? false),
+            'inter_household_week_start' => optional($taskTemplate->inter_household_week_start)->toDateString(),
             'fixed_user_id' => $taskTemplate->fixed_user_id ? (int)$taskTemplate->fixed_user_id : null,
         ];
     }
@@ -1157,6 +1239,53 @@ class HouseholdController extends Controller
         }
 
         return $parsed;
+    }
+
+    private function normalizeIsoWeekDay(mixed $value, int $default = 1): int
+    {
+        $parsed = (int)$value;
+        if ($parsed < 1 || $parsed > 7) {
+            return $default;
+        }
+
+        return $parsed;
+    }
+
+    private function resolveCustodyHomeWeekStart(bool $isEnabled, mixed $rawDate, int $changeDay): ?string
+    {
+        if (!$isEnabled) {
+            return null;
+        }
+
+        $baseDate = is_string($rawDate) && trim($rawDate) !== ''
+            ? Carbon::createFromFormat('Y-m-d', trim($rawDate))->startOfDay()
+            : now()->startOfDay();
+        $startOfWeek = $this->startOfCustomWeek($baseDate, $changeDay);
+
+        return $startOfWeek->toDateString();
+    }
+
+    private function startOfCustomWeek(Carbon $date, int $startDayIso): Carbon
+    {
+        $normalized = $date->copy()->startOfDay();
+        $delta = ((int)$normalized->dayOfWeekIso - $startDayIso + 7) % 7;
+
+        return $normalized->subDays($delta);
+    }
+
+    private function resolveInterHouseholdWeekStart(bool $isEnabled, mixed $rawWeekStart): ?string
+    {
+        if (!$isEnabled) {
+            return null;
+        }
+
+        $startDate = is_string($rawWeekStart) && trim($rawWeekStart) !== ''
+            ? Carbon::createFromFormat('Y-m-d', trim($rawWeekStart))->startOfDay()
+            : now()->startOfDay();
+
+        return $startDate
+            ->startOfWeek(Carbon::MONDAY)
+            ->toDateString();
     }
 
     /**

@@ -15,7 +15,8 @@ class ShoppingListItem extends Model
         'unit',
         'is_checked',
         'checked_by_user_id',
-        'is_manual_addition'
+        'is_manual_addition',
+        'created_by_user_id',
     ];
 
     protected $casts = [
@@ -34,6 +35,11 @@ class ShoppingListItem extends Model
     public function checkedBy()
     {
         return $this->belongsTo(User::class, 'checked_by_user_id');
+    }
+
+    public function createdBy()
+    {
+        return $this->belongsTo(User::class, 'created_by_user_id');
     }
 
 }

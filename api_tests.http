@@ -1,4 +1,4 @@
-﻿### Variables
+### Variables
 
 @baseUrl = http://localhost:8000
 @contentType = application/json
@@ -18,7 +18,7 @@ Accept: application/json
 > {%
     if (response.status === 200 || response.status === 201) {
         client.global.set("auth_token", response.body.token);
-        client.log("Token d'inscription capturÃ© : " + response.body.token);
+        client.log("Token d'inscription capturé : " + response.body.token);
     } else {
         client.log("Register status: " + response.status);
     }
@@ -36,7 +36,7 @@ Accept: {{contentType}}
 
 > {%
     client.global.set("auth_token", response.body.token);
-    client.log("Token capturÃ© : " + response.body.token);
+    client.log("Token capturé : " + response.body.token);
 %}
 
 ### Changement initial obligatoire (must_change_password=true)
@@ -95,7 +95,7 @@ Authorization: Bearer {{auth_token}}
   "nickname": "Papa Maison A"
 }
 
-### CrÃ©er un mÃ©nage (capture household_id)
+### Créer un ménage (capture household_id)
 POST {{baseUrl}}/api/households
 Content-Type: {{contentType}}
 Accept: {{contentType}}
@@ -108,45 +108,45 @@ Authorization: Bearer {{auth_token}}
 > {%
     const hid = response.body.id ?? response.body.data?.id;
     client.global.set("household_id", hid);
-    client.log("household_id capturÃ© : " + hid);
+    client.log("household_id capturé : " + hid);
 %}
-### 4) Demander des idÃ©es Ã  l'IA (intent=ideas)
+### 4) Demander des idées à l'IA (intent=ideas)
 POST {{baseUrl}}/api/recipes/suggest
 Content-Type: {{contentType}}
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
 {
-  "preferences": "VÃ©gÃ©tarien, cuisine italienne",
+  "preferences": "Végétarien, cuisine italienne",
   "count": 3,
   "intent": "ideas"
 }
 
-### 5) Demander une recette spÃ©cifique Ã  l'IA (intent=specific)
+### 5) Demander une recette spécifique à l'IA (intent=specific)
 POST {{baseUrl}}/api/recipes/suggest
 Content-Type: {{contentType}}
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
 {
-  "preferences": "Lasagnes aux lÃ©gumes",
+  "preferences": "Lasagnes aux légumes",
   "intent": "specific"
 }
 
-### 6) Preview recette (endpoint dÃ©diÃ©)
+### 6) Preview recette (endpoint dédié)
 POST {{baseUrl}}/api/recipes/preview-ai
 Content-Type: {{contentType}}
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
 {
-  "title": "Lasagnes aux lÃ©gumes"
+  "title": "Lasagnes aux légumes"
 }
 
 ### 7) AI Store (exemple valide AVEC type + category)
 # IMPORTANT:
-# - type doit Ãªtre: petit-dÃ©jeuner, entrÃ©e, plat principal, dessert, collation, boisson, autre
-# - category doit Ãªtre: fruits et lÃ©gumes, boucherie, poissonnerie, crÃ¨merie, Ã©picerie salÃ©e, Ã©picerie sucrÃ©e, boissons, surgelÃ©s, entretien et hygiÃ¨ne, autre
+# - type doit être: petit-déjeuner, entrée, plat principal, dessert, collation, boisson, autre
+# - category doit être: fruits et légumes, boucherie, poissonnerie, crèmerie, épicerie salée, épicerie sucrée, boissons, surgelés, entretien et hygiène, autre
 POST {{baseUrl}}/api/recipes/ai-store
 Content-Type: {{contentType}}
 Accept: {{contentType}}
@@ -154,39 +154,39 @@ Authorization: Bearer {{auth_token}}
 
 {
   "household_id": 3,
-  "title": "Lasagnes aux lÃ©gumes",
+  "title": "Lasagnes aux légumes",
   "type": "plat principal",
-  "description": "Un plat italien classique revisitÃ© avec des lÃ©gumes pour une version vÃ©gÃ©tarienne dÃ©licieuse.",
-  "instructions": "Ã‰tape 1 : PrÃ©chauffez le four Ã  180Â°C. Ã‰tape 2 : ...",
+  "description": "Un plat italien classique revisité avec des légumes pour une version végétarienne délicieuse.",
+  "instructions": "Étape 1 : Préchauffez le four à 180°C. Étape 2 : ...",
   "ingredients": [
-    { "name": "pÃ¢tes Ã  lasagnes", "quantity": 250, "unit": "g", "category": "Ã©picerie salÃ©e" },
-    { "name": "oignon", "quantity": 1, "unit": "unitÃ©", "category": "fruits et lÃ©gumes" },
-    { "name": "poivron", "quantity": 1, "unit": "unitÃ©", "category": "fruits et lÃ©gumes" },
-    { "name": "courgette", "quantity": 1, "unit": "unitÃ©", "category": "fruits et lÃ©gumes" },
-    { "name": "tomates concassÃ©es", "quantity": 400, "unit": "g", "category": "Ã©picerie salÃ©e" },
-    { "name": "ricotta", "quantity": 200, "unit": "g", "category": "crÃ¨merie" },
-    { "name": "parmesan rÃ¢pÃ©", "quantity": 40, "unit": "g", "category": "crÃ¨merie" },
-    { "name": "sel", "quantity": 0, "unit": "au goÃ»t", "category": "autre" }
+    { "name": "pâtes à lasagnes", "quantity": 250, "unit": "g", "category": "épicerie salée" },
+    { "name": "oignon", "quantity": 1, "unit": "unité", "category": "fruits et légumes" },
+    { "name": "poivron", "quantity": 1, "unit": "unité", "category": "fruits et légumes" },
+    { "name": "courgette", "quantity": 1, "unit": "unité", "category": "fruits et légumes" },
+    { "name": "tomates concassées", "quantity": 400, "unit": "g", "category": "épicerie salée" },
+    { "name": "ricotta", "quantity": 200, "unit": "g", "category": "crèmerie" },
+    { "name": "parmesan râpé", "quantity": 40, "unit": "g", "category": "crèmerie" },
+    { "name": "sel", "quantity": 0, "unit": "au goût", "category": "autre" }
   ]
 }
 
 > {%
     const rid = response.body.id ?? response.body.data?.id;
     client.global.set("recipe_id", rid);
-    client.log("recipe_id capturÃ© : " + rid);
+    client.log("recipe_id capturé : " + rid);
 %}
 
-### 8) VÃ©rifier la liste des recettes (doit contenir la recette AI)
+### 8) Vérifier la liste des recettes (doit contenir la recette AI)
 GET {{baseUrl}}/api/recipes
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
-### 9) RÃ©cupÃ©rer la recette crÃ©Ã©e
+### 9) Récupérer la recette créée
 GET {{baseUrl}}/api/recipes/{{recipe_id}}
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
-### 9b) Recupérer la recette avec portions ciblees (scaling)
+### 9b) Récupérer la recette avec portions ciblées (scaling)
 GET {{baseUrl}}/api/recipes/{{recipe_id}}?servings=4
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
@@ -204,7 +204,7 @@ Authorization: Bearer {{auth_token}}
   "description": "test",
   "instructions": "test",
   "ingredients": [
-    { "name": "oignon", "quantity": 1, "unit": "unitÃ©", "category": "fruits et lÃ©gumes" }
+    { "name": "oignon", "quantity": 1, "unit": "unité", "category": "fruits et légumes" }
   ]
 }
 
@@ -216,17 +216,17 @@ Authorization: Bearer {{auth_token}}
 
 {
   "household_id": 3,
-  "title": "Test mauvaise catÃ©gorie",
+  "title": "Test mauvaise catégorie",
   "type": "plat principal",
   "description": "test",
   "instructions": "test",
   "ingredients": [
-    { "name": "oignon", "quantity": 1, "unit": "unitÃ©", "category": "frais" }
+    { "name": "oignon", "quantity": 1, "unit": "unité", "category": "frais" }
   ]
 }
 
-### 12) Test pivot unique: doublon ingrÃ©dient (ne doit PAS casser si tu utilises sync)
-# Si ton controller est encore en attach(), Ã§a risque 500.
+### 12) Test pivot unique: doublon ingrédient (ne doit PAS casser si tu utilises sync)
+# Si ton controller est encore en attach(), ça risque 500.
 POST {{baseUrl}}/api/recipes/ai-store
 Content-Type: {{contentType}}
 Accept: {{contentType}}
@@ -239,8 +239,8 @@ Authorization: Bearer {{auth_token}}
   "description": "test",
   "instructions": "test",
   "ingredients": [
-    { "name": "oignon", "quantity": 1, "unit": "unitÃ©", "category": "fruits et lÃ©gumes" },
-    { "name": "oignon", "quantity": 2, "unit": "unitÃ©", "category": "fruits et lÃ©gumes" }
+    { "name": "oignon", "quantity": 1, "unit": "unité", "category": "fruits et légumes" },
+    { "name": "oignon", "quantity": 2, "unit": "unité", "category": "fruits et légumes" }
   ]
 }
 
@@ -252,14 +252,14 @@ Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
 {
-  "title": "Lasagnes aux lÃ©gumes (update)",
+  "title": "Lasagnes aux légumes (update)",
   "type": "plat principal",
   "base_servings": 4,
   "description": "update",
   "instructions": "update",
   "ingredients": [
-    { "name": "oignon", "quantity": 1, "unit": "unitÃ©", "category": "fruits et lÃ©gumes" },
-    { "name": "ricotta", "quantity": 250, "unit": "g", "category": "crÃ¨merie" }
+    { "name": "oignon", "quantity": 1, "unit": "unité", "category": "fruits et légumes" },
+    { "name": "ricotta", "quantity": 250, "unit": "g", "category": "crèmerie" }
   ]
 }
 
@@ -313,22 +313,9 @@ Authorization: Bearer {{auth_token}}
       "enabled": true,
       "settings": {
         "reminders_enabled": true,
-        "templates": [
-          {
-            "name": "Sortir les poubelles",
-            "description": "Bac noir et PMC",
-            "recurrence": "weekly",
-            "recurrence_days": [3, 4],
-            "is_rotation": true,
-            "rotation_cycle_weeks": 2
-          },
-          {
-            "name": "Ranger la chambre",
-            "recurrence": "daily",
-            "recurrence_days": [1, 2, 3, 4, 5, 6, 7],
-            "is_rotation": false
-          }
-        ]
+        "alternating_custody_enabled": true,
+        "custody_change_day": 5,
+        "custody_home_week_start": "2026-03-06"
       }
     },
     "calendar": {
@@ -411,15 +398,9 @@ Authorization: Bearer {{auth_token}}
       "enabled": true,
       "settings": {
         "reminders_enabled": true,
-        "templates": [
-          {
-            "name": "Passer l'aspirateur",
-            "recurrence": "weekly",
-            "recurrence_days": [6],
-            "is_rotation": true,
-            "rotation_cycle_weeks": 1
-          }
-        ]
+        "alternating_custody_enabled": true,
+        "custody_change_day": 5,
+        "custody_home_week_start": "2026-03-13"
       }
     },
     "calendar": {
@@ -486,6 +467,21 @@ Authorization: Bearer {{auth_token}}
   }
 %}
 
+### Meal Polls V2 - Modifier un sondage ouvert (Parent)
+PATCH {{baseUrl}}/api/meal-polls/{{meal_poll_id}}
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "title": "Sondage semaine test (corrigé)",
+  "recipe_ids": [1, 2],
+  "planning_start_date": "2026-02-24",
+  "planning_end_date": "2026-03-02",
+  "duration_hours": 48,
+  "max_votes_per_user": 2
+}
+
 ### Meal Polls V2 - Voter (toggle) sur une option
 POST {{baseUrl}}/api/meal-polls/{{meal_poll_id}}/vote
 Content-Type: {{contentType}}
@@ -535,10 +531,14 @@ GET {{baseUrl}}/api/meal-polls/history
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
-### Dashboard - Vue complete sondages + recettes preferees
+### Dashboard - Vue complète sondages + tâches + recettes préférées
 GET {{baseUrl}}/api/dashboard
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
+
+# Réponse attendue:
+# - polls_open / polls_closed / polls
+# - tasks_summary: { enabled, range: { from, to }, todo_count, done_count, validated_count }
 
 ### Notifications - Recuperer celles en attente d'envoi local
 GET {{baseUrl}}/api/notifications/pending
@@ -589,15 +589,20 @@ Authorization: Bearer {{auth_token}}
   }
 %}
 
-### Shopping Lists - Detail d'une liste
-# Reponse attendue:
-# - list.items: elements de la liste
-# - planned_recipe_suggestions: repas planifies (resultat sondage/meal plan) + ingredients detailles
+### Shopping Lists - Détail d'une liste
+# Réponse attendue:
+# - list.items: éléments de la liste
+# - list.items[].created_by (id, name): membre qui a ajouté l'élément
+# - planned_recipe_suggestions: repas planifiés (résultat sondage/meal plan) + ingrédients détaillés
 GET {{baseUrl}}/api/shopping-lists/{{shopping_list_id}}
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
-### Shopping Lists - Ajouter un ingredient manuel
+### Shopping Lists - Ajouter un ingrédient manuel
+# Règle d'accès:
+# - parent: peut ajouter manuel + non-manuel
+# - enfant: peut ajouter uniquement un élément manuel (is_manual_addition=true implicite)
+# - end_date est optionnelle pour les taches ponctuelles et genere une instance par jour
 POST {{baseUrl}}/api/shopping-lists/{{shopping_list_id}}/items
 Content-Type: {{contentType}}
 Accept: {{contentType}}
@@ -666,6 +671,8 @@ Authorization: Bearer {{auth_token}}
 %}
 
 ### Tasks - Creer un template (parent)
+# NOTE:
+# - Pour une routine mensuelle, envoyer aussi start_date (YYYY-MM-DD)
 POST {{baseUrl}}/api/tasks/templates
 Content-Type: {{contentType}}
 Accept: {{contentType}}
@@ -674,10 +681,13 @@ Authorization: Bearer {{auth_token}}
 {
   "name": "Passer l aspirateur",
   "description": "Salon + couloir",
-  "recurrence": "weekly",
+  "recurrence": "monthly",
+  "start_date": "2026-03-15",
   "recurrence_days": [3, 5],
   "is_rotation": true,
-  "rotation_cycle_weeks": 2
+  "rotation_cycle_weeks": 2,
+  "is_inter_household_alternating": true,
+  "inter_household_week_start": "2026-03-02"
 }
 
 > {%
@@ -696,13 +706,20 @@ Authorization: Bearer {{auth_token}}
 
 {
   "name": "Passer l aspirateur + poussiere",
-  "recurrence": "weekly",
+  "recurrence": "monthly",
+  "start_date": "2026-03-20",
   "recurrence_days": [3, 5],
   "is_rotation": true,
-  "rotation_cycle_weeks": 1
+  "rotation_cycle_weeks": 1,
+  "is_inter_household_alternating": true,
+  "inter_household_week_start": "2026-03-09"
 }
 
-### Tasks - Creer une instance (parent)
+### Tasks - Créer une instance (parent ou enfant)
+# Règle:
+# - parent: peut attribuer à n'importe quel membre du foyer via user_id
+# - enfant: ne peut s'attribuer qu'à lui-même (même si user_id est envoyé)
+# - end_date est optionnelle pour les taches ponctuelles et genere une instance par jour
 POST {{baseUrl}}/api/tasks/instances
 Content-Type: {{contentType}}
 Accept: {{contentType}}
@@ -710,7 +727,8 @@ Authorization: Bearer {{auth_token}}
 
 {
   "task_template_id": {{task_template_id}},
-  "due_date": "2026-02-20"
+  "due_date": "2026-02-20",
+  "end_date": "2026-02-22"
 }
 
 > {%
@@ -811,6 +829,41 @@ Authorization: Bearer {{auth_token}}
   "is_shared_with_other_household": false
 }
 
+### Calendar - Creer un meal plan (parent, avec recette)
+POST {{baseUrl}}/api/calendar/meal-plan
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "date": "2026-02-20",
+  "meal_type": "midi",
+  "recipe_id": {{meal_poll_recipe_id}},
+  "servings": 4,
+  "note": "Repas cree depuis calendrier"
+}
+
+> {%
+  const mealPlan = response.body?.meal_plan;
+  if (mealPlan?.id) {
+    client.global.set('calendar_meal_plan_id', mealPlan.id);
+    client.log('calendar_meal_plan_id cree/mis a jour: ' + mealPlan.id);
+  }
+%}
+
+### Calendar - Creer un meal plan libre (parent, sans recette)
+POST {{baseUrl}}/api/calendar/meal-plan
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "date": "2026-02-21",
+  "meal_type": "soir",
+  "custom_title": "Pique-nique maison",
+  "note": "Sans recette en base"
+}
+
 ### Calendar - Modifier un meal plan d une journee (parent)
 PATCH {{baseUrl}}/api/calendar/meal-plan/{{calendar_meal_plan_id}}
 Content-Type: {{contentType}}
@@ -845,5 +898,26 @@ Authorization: Bearer {{auth_token}}
 
 ### Calendar - Supprimer un evenement
 DELETE {{baseUrl}}/api/calendar/events/{{calendar_event_id}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+
+### Recettes globales - Récupérer toutes les recettes visibles
+GET {{baseUrl}}/api/recipes?scope=all
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+### Recettes globales - Récupérer uniquement Mes recettes
+GET {{baseUrl}}/api/recipes?scope=mine
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+### Recettes globales - Ajouter une recette globale à Mes recettes
+POST {{baseUrl}}/api/recipes/{{recipe_id}}/save
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+### Recettes globales - Retirer une recette globale de Mes recettes
+DELETE {{baseUrl}}/api/recipes/{{recipe_id}}/save
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
