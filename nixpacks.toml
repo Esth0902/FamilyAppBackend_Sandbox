@@ -10,4 +10,4 @@ cmds = [
 ]
 
 [start]
-cmd = "(php-fpm -D) && nginx -g 'daemon off;'"
+cmd = "nginx -g 'daemon off;'"
