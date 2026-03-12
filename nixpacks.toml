@@ -2,14 +2,12 @@
 NIXPACKS_PHP_ROOT_DIR="/app/public"
 
 [phases.setup]
-nixPkgs = ["php84", "php84Packages.composer", "nginx", "nodejs_22"]
+nixPkgs = ["php84", "php84Packages.composer", "nginx"]
 
 [phases.install]
 cmds = [
-  "composer install --no-dev --optimize-autoloader",
-  "npm ci",
-  "npm run build"
+  "composer install --no-dev --optimize-autoloader"
 ]
 
 [start]
-cmd = "php artisan migrate --force && (php-fpm -D) && nginx -g 'daemon off;'"
+cmd = "php artisan migrate --force && (php-fpm -D) && nginx -g 'daemon off;'";'"
