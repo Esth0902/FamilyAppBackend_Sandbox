@@ -27,7 +27,10 @@ touch /var/log/nginx-access.log \
       /var/log/nginx-error.log \
       /var/log/worker-nginx.log \
       /var/log/worker-phpfpm.log \
-      /var/log/supervisord.log
+      /var/log/supervisord.log \
+      /var/log/worker-reverb.log \
+      /var/log/worker-queue.log \
+      /var/log/worker-schedule.log
 
 node /assets/scripts/prestart.mjs /assets/nginx.template.conf /etc/nginx.conf
 supervisord -c /etc/supervisord.conf -n
@@ -78,6 +81,39 @@ autorestart=true
 priority=5
 stdout_logfile=/var/log/worker-phpfpm.log
 stderr_logfile=/var/log/worker-phpfpm.log
+'''
+
+"worker-reverb.conf" = '''
+[program:worker-reverb]
+process_name=%(program_name)s_%(process_num)02d
+command=php /app/artisan reverb:start --host=0.0.0.0 --port=8080
+autostart=true
+autorestart=true
+priority=20
+stdout_logfile=/var/log/worker-reverb.log
+stderr_logfile=/var/log/worker-reverb.log
+'''
+
+"worker-queue.conf" = '''
+[program:worker-queue]
+process_name=%(program_name)s_%(process_num)02d
+command=php /app/artisan queue:work --sleep=3 --tries=3
+autostart=true
+autorestart=true
+priority=15
+stdout_logfile=/var/log/worker-queue.log
+stderr_logfile=/var/log/worker-queue.log
+'''
+
+"worker-schedule.conf" = '''
+[program:worker-schedule]
+process_name=%(program_name)s_%(process_num)02d
+command=php /app/artisan schedule:work
+autostart=true
+autorestart=true
+priority=15
+stdout_logfile=/var/log/worker-schedule.log
+stderr_logfile=/var/log/worker-schedule.log
 '''
 
 "php-fpm.conf" = '''
