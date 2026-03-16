@@ -113,6 +113,8 @@ class HouseholdController extends Controller
 
             'modules.budget.enabled' => 'nullable|boolean',
             'modules.budget.settings' => 'nullable|array',
+        ], [
+            'members.*.email.unique' => "Cet e-mail est déjà utilisé.",
         ]);
 
         $householdName = trim((string)($validated['household_name'] ?? $validated['name'] ?? ''));
@@ -236,6 +238,8 @@ class HouseholdController extends Controller
             'name' => 'required|string|max:255',
             'email' => 'nullable|email|max:255|unique:users,email',
             'role' => 'required|in:parent,enfant',
+        ], [
+            'email.unique' => "Cet e-mail est déjà utilisé.",
         ]);
 
         $name = trim((string) $validated['name']);
@@ -311,6 +315,8 @@ class HouseholdController extends Controller
             'email' => 'sometimes|nullable|email|max:255|unique:users,email,' . $member->id,
             'role' => 'sometimes|in:parent,enfant',
             'nickname' => 'sometimes|nullable|string|max:255',
+        ], [
+            'email.unique' => "Cet e-mail est déjà utilisé.",
         ]);
 
         if (count($validated) === 0) {
@@ -1675,7 +1681,7 @@ class HouseholdController extends Controller
     private function buildMemberShareText(string $name, string $email, string $rawPassword): string
     {
         return "Bonjour {$name} !\n\n"
-            . "Ton compte FamilyApp est prêt.\n"
+            . "Ton compte FamilyFlow est prêt.\n"
             . "Connecte-toi avec les identifiants suivants :\n"
             . "Email : {$email}\n"
             . "Mot de passe temporaire : {$rawPassword}\n\n"

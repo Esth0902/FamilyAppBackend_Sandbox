@@ -74,6 +74,8 @@ class AuthController extends Controller
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', 'max:255', 'unique:users,email'],
             'password' => ['required', 'confirmed', Password::min(8)],
+        ], [
+            'email.unique' => "Cet e-mail est déjà utilisé.",
         ]);
 
         $user = User::create([
@@ -159,6 +161,8 @@ class AuthController extends Controller
         $validated = $request->validate([
             'email' => ['required', 'email', 'max:255', 'unique:users,email,' . $user->id],
             'password' => ['required', 'confirmed', Password::min(8)],
+        ], [
+            'email.unique' => "Cet e-mail est déjà utilisé.",
         ]);
 
         $user->forceFill([
@@ -187,6 +191,8 @@ class AuthController extends Controller
             'email' => ['nullable', 'email', 'max:255', 'unique:users,email,' . $user->id],
             'password' => ['nullable', 'confirmed', Password::min(8)],
             'current_password' => ['required_with:email,password', 'string'],
+        ], [
+            'email.unique' => "Cet e-mail est déjà utilisé.",
         ]);
 
         $emailWasProvided = array_key_exists('email', $validated) && $validated['email'] !== null;

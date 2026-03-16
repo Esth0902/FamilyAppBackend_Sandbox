@@ -95,4 +95,14 @@ class User extends Authenticatable
     {
         return $this->hasMany(UserNotification::class);
     }
+
+    public function setEmailAttribute(?string $value): void
+    {
+        if ($value === null) {
+            $this->attributes['email'] = null;
+            return;
+        }
+
+        $this->attributes['email'] = mb_strtolower(trim($value));
+    }
 }

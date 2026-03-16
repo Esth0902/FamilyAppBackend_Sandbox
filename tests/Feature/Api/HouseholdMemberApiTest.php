@@ -79,6 +79,26 @@ class HouseholdMemberApiTest extends TestCase
         ])->assertForbidden();
     }
 
+    public function test_parent_gets_french_error_when_inviting_existing_email(): void
+    {
+        [, $parent] = $this->createHouseholdWithMembers();
+        $existingUser = User::factory()->create([
+            'email' => 'deja.utilise@example.com',
+        ]);
+        Sanctum::actingAs($parent);
+
+        $response = $this->postJson('/api/household/members', [
+            'name' => 'Membre Existant',
+            'email' => $existingUser->email,
+            'role' => User::ROLE_CHILD,
+        ]);
+
+        $response
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['email'])
+            ->assertJsonPath('errors.email.0', "Cet e-mail est déjà utilisé.");
+    }
+
     public function test_child_cannot_update_household_config_or_create_dietary_tags(): void
     {
         [, , $child] = $this->createHouseholdWithMembers();
