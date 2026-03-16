@@ -34,7 +34,7 @@ class MealPollController extends Controller
 
     public function active(Request $request): JsonResponse
     {
-        $household = $this->resolveCurrentHousehold($request->user());
+        $household = $this->resolveCurrentHousehold($request->user(), $request);
         if (!$household) {
             return response()->json(['message' => 'Aucun foyer associe.'], 404);
         }
@@ -73,7 +73,7 @@ class MealPollController extends Controller
 
     public function history(Request $request): JsonResponse
     {
-        $household = $this->resolveCurrentHousehold($request->user());
+        $household = $this->resolveCurrentHousehold($request->user(), $request);
         if (!$household) {
             return response()->json(['polls' => []]);
         }
@@ -94,7 +94,7 @@ class MealPollController extends Controller
     public function store(Request $request): JsonResponse
     {
         $user = $request->user();
-        $household = $this->resolveCurrentHousehold($user);
+        $household = $this->resolveCurrentHousehold($user, $request);
         if (!$household) {
             return response()->json(['message' => 'Aucun foyer associe.'], 404);
         }

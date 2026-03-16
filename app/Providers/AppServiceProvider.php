@@ -11,6 +11,7 @@ use Illuminate\Routing\ResponseFactory as IlluminateResponseFactory;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
+use Illuminate\Support\Str;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -53,10 +54,13 @@ class AppServiceProvider extends ServiceProvider
         });
 
         ResetPassword::createUrlUsing(function (object $notifiable, string $token) {
-            $frontendBaseUrl = rtrim((string) (config('app.frontend_url') ?: config('app.url')), '/');
+            $frontendBaseUrl = (string) (config('app.frontend_url') ?: config('app.url'));
+            // Keep URI schemes such as "frontend://" intact while normalizing classic trailing slashes.
+            $frontendBaseUrl = preg_replace('#(?<!:)/+$#', '', $frontendBaseUrl) ?: $frontendBaseUrl;
+            $separator = Str::endsWith($frontendBaseUrl, '://') ? '' : '/';
             $email = urlencode((string) $notifiable->getEmailForPasswordReset());
 
-            return $frontendBaseUrl . "/password-reset/$token?email=$email";
+            return $frontendBaseUrl . "{$separator}password-reset/$token?email=$email";
         });
     }
 }

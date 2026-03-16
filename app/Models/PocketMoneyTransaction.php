@@ -16,13 +16,17 @@ class PocketMoneyTransaction extends Model
         'comment',
     ];
 
-    public function household(): belongsTo
+    protected $casts = [
+        'amount' => 'float',
+    ];
+
+    public function household(): BelongsTo
     {
-        return $this -> belongsTo(Household::class);
+        return $this->belongsTo(Household::class);
     }
 
-    public function user(): belongsTo
+    public function user(): BelongsTo
     {
-        return $this -> belongsTo(User::class);
+        return $this->belongsTo(User::class);
     }
 }

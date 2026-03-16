@@ -43,7 +43,7 @@ class RecipeController extends Controller
 
     public function index(Request $request)
     {
-        $household = $this->resolveCurrentHousehold($request->user());
+        $household = $this->resolveCurrentHousehold($request->user(), $request);
         if (!$household) {
             return response()->json(['message' => 'Aucun foyer associé'], 403);
         }
@@ -80,7 +80,7 @@ class RecipeController extends Controller
 
     public function show(Request $request, $id)
     {
-        $household = $this->resolveCurrentHousehold($request->user());
+        $household = $this->resolveCurrentHousehold($request->user(), $request);
         if (!$household) {
             return response()->json(['message' => 'Aucun foyer associé'], 403);
         }
@@ -103,7 +103,7 @@ class RecipeController extends Controller
 
     public function saveToMine(Request $request, Recipe $recipe)
     {
-        $household = $this->resolveCurrentHousehold($request->user());
+        $household = $this->resolveCurrentHousehold($request->user(), $request);
         if (!$household) {
             return response()->json(['message' => 'Aucun foyer associé'], 403);
         }
@@ -133,7 +133,7 @@ class RecipeController extends Controller
 
     public function removeFromMine(Request $request, Recipe $recipe)
     {
-        $household = $this->resolveCurrentHousehold($request->user());
+        $household = $this->resolveCurrentHousehold($request->user(), $request);
         if (!$household) {
             return response()->json(['message' => 'Aucun foyer associé'], 403);
         }
@@ -255,7 +255,7 @@ class RecipeController extends Controller
 
     public function store(Request $request)
     {
-        $household = $this->resolveCurrentHousehold($request->user());
+        $household = $this->resolveCurrentHousehold($request->user(), $request);
         if (!$household) {
             return response()->json(['message' => 'Aucun foyer associé'], 403);
         }

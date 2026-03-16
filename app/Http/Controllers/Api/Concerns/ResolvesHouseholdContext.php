@@ -9,8 +9,25 @@ use Illuminate\Validation\ValidationException;
 
 trait ResolvesHouseholdContext
 {
-    protected function resolveCurrentHousehold(User $user): ?Household
+    protected function resolveCurrentHousehold(User $user, ?Request $request = null): ?Household
     {
+        if ($request) {
+            $requestedHouseholdId = $this->resolveRequestedHouseholdId($request);
+            if ($requestedHouseholdId !== null) {
+                $requestedHousehold = $user->households()
+                    ->where('households.id', $requestedHouseholdId)
+                    ->first();
+
+                if (! $requestedHousehold) {
+                    throw ValidationException::withMessages([
+                        'household' => ['Foyer non accessible pour cet utilisateur.'],
+                    ]);
+                }
+
+                return $requestedHousehold;
+            }
+        }
+
         return $user->households()->first();
     }
 
@@ -19,7 +36,7 @@ trait ResolvesHouseholdContext
      */
     protected function resolveHouseholdWithRole(Request $request): array
     {
-        $household = $request->user()->households()->first();
+        $household = $this->resolveCurrentHousehold($request->user(), $request);
 
         if (!$household) {
             throw ValidationException::withMessages([
@@ -30,6 +47,17 @@ trait ResolvesHouseholdContext
         $role = (string) ($household->pivot->role ?? User::ROLE_CHILD);
 
         return [$household, $role];
+    }
+
+    protected function resolveRequestedHouseholdId(Request $request): ?int
+    {
+        $rawValue = $request->header('X-Household-Id');
+        if (!is_string($rawValue) || trim($rawValue) === '') {
+            return null;
+        }
+
+        $parsed = (int) $rawValue;
+        return $parsed > 0 ? $parsed : null;
     }
 
     protected function ensureParentRole(string $role): void

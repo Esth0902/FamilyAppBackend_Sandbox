@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\BudgetController;
 use App\Http\Controllers\Api\CalendarController;
 use App\Http\Controllers\Api\HouseholdController;
 use App\Http\Controllers\Api\MealPollController;
@@ -43,7 +44,11 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'must.change.password'])->gro
     Route::get('/households/dietary-tags', [HouseholdController::class, 'dietaryTags']);
     Route::post('/households/dietary-tags', [HouseholdController::class, 'createDietaryTag']);
     Route::patch('/households/config', [HouseholdController::class, 'updateConfig']);
+    Route::get('/household/members', [HouseholdController::class, 'members']);
     Route::post('/household/members', [HouseholdController::class, 'addMember']);
+    Route::patch('/household/members/{member}', [HouseholdController::class, 'updateMember']);
+    Route::delete('/household/members/{member}', [HouseholdController::class, 'deleteMember']);
+    Route::post('/household/members/{member}/temporary-access', [HouseholdController::class, 'refreshMemberTemporaryAccess']);
     Route::get('/dashboard', [HouseholdController::class, 'dashboard']);
 
     // Recipes - IA (custom endpoints)
@@ -98,4 +103,11 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'must.change.password'])->gro
     Route::post('/shopping-lists/{list}/items', [ShoppingListController::class, 'addItem']);
     Route::patch('/shopping-lists/items/{item}', [ShoppingListController::class, 'updateItem']);
     Route::delete('/shopping-lists/items/{item}', [ShoppingListController::class, 'removeItem']);
+
+    // Budget
+    Route::get('/budget/board', [BudgetController::class, 'board']);
+    Route::patch('/budget/settings/{user}', [BudgetController::class, 'updateSetting']);
+    Route::post('/budget/payments', [BudgetController::class, 'validatePayment']);
+    Route::post('/budget/advances', [BudgetController::class, 'requestAdvance']);
+    Route::post('/budget/advances/{transaction}/review', [BudgetController::class, 'reviewAdvance']);
 });

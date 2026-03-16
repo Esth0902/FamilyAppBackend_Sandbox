@@ -17,6 +17,13 @@ class BudgetSetting extends Model
         'max_advance_amount',
     ];
 
+    protected $casts = [
+        'base_amount' => 'float',
+        'reset_day' => 'integer',
+        'allow_advances' => 'boolean',
+        'max_advance_amount' => 'float',
+    ];
+
     public function household(): BelongsTo
     {
         return $this->belongsTo(Household::class);

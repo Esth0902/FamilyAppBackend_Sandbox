@@ -57,7 +57,7 @@ class PollNotificationService
             $userIds,
             'poll_opened',
             'Nouveau sondage repas',
-            'Un parent a ouvert le sondage de la semaine. Venez voter.',
+            'Un nouveau sondage a été ouvert, viens voter !',
             [
                 'poll_id' => $poll->id,
             ]
@@ -71,7 +71,7 @@ class PollNotificationService
             $userIds,
             'poll_reminder',
             'Rappel vote sondage',
-            'Le sondage repas est toujours ouvert. Pensez a voter.',
+            'Le sondage repas est toujours ouvert, viens vite voter !',
             [
                 'poll_id' => $poll->id,
                 'ends_at' => optional($poll->ends_at)->toIso8601String(),
@@ -86,8 +86,8 @@ class PollNotificationService
             (int)$poll->household_id,
             $userIds,
             'poll_closing_soon',
-            'Sondage bientot cloture',
-            'Le sondage repas se termine bientot. Derniers votes avant cloture.',
+            'Sondage bientôt clôturé',
+            'Le sondage repas se termine bientôt, viens vite voter !',
             [
                 'poll_id' => $poll->id,
                 'ends_at' => optional($poll->ends_at)->toIso8601String(),
@@ -110,8 +110,8 @@ class PollNotificationService
             (int)$poll->household_id,
             collect([(int)$parentId]),
             'poll_needs_validation',
-            'Cloture du sondage',
-            'Le sondage est termine. Un parent doit valider les plats gagnants.',
+            'Clôture du sondage',
+            'Le sondage est terminé, les plats gagnants doivent être validés.',
             [
                 'poll_id' => $poll->id,
             ]
@@ -126,7 +126,7 @@ class PollNotificationService
             $userIds,
             'poll_validated',
             'Resultats du sondage',
-            'Les plats gagnants ont ete valides par un parent.',
+            'Les plats gagnants ont été validés.',
             [
                 'poll_id' => $poll->id,
             ]
@@ -139,8 +139,8 @@ class PollNotificationService
             $householdId,
             collect([$parentUserId]),
             'poll_open_prompt',
-            'Ouvrir le sondage hebdo',
-            'C est le moment d ouvrir le sondage de la semaine.',
+            'Ouvrir le sondage hebdomadaire',
+            'C\'est le moment d\'ouvrir le sondage de la semaine.',
             [
                 'poll_day' => $pollDay,
                 'poll_time' => $pollTime,
