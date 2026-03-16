@@ -2,6 +2,9 @@
 
 @baseUrl = http://localhost:8000
 @contentType = application/json
+# Optionnel: force le foyer actif utilise par les endpoints multi-foyers.
+# L'utilisateur doit appartenir au foyer cible, sinon l'API renvoie une erreur.
+@active_household_id = {{household_id}}
 
 ### Inscription d'un nouvel utilisateur + Capture du token
 POST http://localhost:8000/api/register
@@ -38,6 +41,16 @@ Accept: {{contentType}}
     client.global.set("auth_token", response.body.token);
     client.log("Token capturé : " + response.body.token);
 %}
+
+### Test de login insensible a la casse sur email
+POST {{baseUrl}}/api/login
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+
+{
+  "email": "USER@TEST.COM",
+  "password": "password123"
+}
 
 ### Changement initial obligatoire (must_change_password=true)
 POST {{baseUrl}}/api/auth/change-initial-credentials
@@ -94,6 +107,12 @@ Authorization: Bearer {{auth_token}}
 {
   "nickname": "Papa Maison A"
 }
+
+### Profil courant (avec contexte de foyer actif force)
+GET {{baseUrl}}/api/me
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+X-Household-Id: {{active_household_id}}
 
 ### Créer un ménage (capture household_id)
 POST {{baseUrl}}/api/households
@@ -360,6 +379,7 @@ Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
 ### Creer un nouveau dietary tag (avec anti-doublon embedding)
+# Endpoint réservé au rôle parent (403 pour un enfant)
 POST {{baseUrl}}/api/households/dietary-tags
 Content-Type: {{contentType}}
 Accept: {{contentType}}
@@ -371,6 +391,7 @@ Authorization: Bearer {{auth_token}}
 }
 
 ### Mettre a jour la configuration du foyer courant
+# Endpoint réservé au rôle parent (403 pour un enfant)
 PATCH {{baseUrl}}/api/households/config
 Content-Type: {{contentType}}
 Accept: {{contentType}}
@@ -921,3 +942,142 @@ Authorization: Bearer {{auth_token}}
 DELETE {{baseUrl}}/api/recipes/{{recipe_id}}/save
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
+
+
+### Budget - Charger le board
+GET {{baseUrl}}/api/budget/board
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+> {%
+  const children = Array.isArray(response.body?.children) ? response.body.children : [];
+  const firstChild = children[0]?.child;
+  const pending = Array.isArray(response.body?.pending_advance_requests) ? response.body.pending_advance_requests : [];
+  if (firstChild?.id) {
+    client.global.set('budget_child_id', firstChild.id);
+    client.log('budget_child_id capture: ' + firstChild.id);
+  }
+  if (pending[0]?.id) {
+    client.global.set('budget_advance_request_id', pending[0].id);
+    client.log('budget_advance_request_id capture: ' + pending[0].id);
+  }
+%}
+
+### Budget - Parent met a jour les regles argent de poche d un enfant
+PATCH {{baseUrl}}/api/budget/settings/{{budget_child_id}}
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "base_amount": 25,
+  "recurrence": "weekly",
+  "reset_day": 1,
+  "allow_advances": true,
+  "max_advance_amount": 12
+}
+
+### Budget - Parent valide un paiement (montant adaptable)
+POST {{baseUrl}}/api/budget/payments
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "user_id": {{budget_child_id}},
+  "amount": 22.5,
+  "comment": "Paiement valide avec ajustement cette semaine"
+}
+
+### Budget - Enfant demande une avance (justification obligatoire)
+POST {{baseUrl}}/api/budget/advances
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "amount": 8,
+  "comment": "Besoin pour une sortie scolaire"
+}
+
+> {%
+  const transaction = response.body?.transaction;
+  if (transaction?.id) {
+    client.global.set('budget_advance_request_id', transaction.id);
+    client.log('budget_advance_request_id cree: ' + transaction.id);
+  }
+%}
+
+### Budget - Parent approuve une avance (avec adaptation possible du montant)
+POST {{baseUrl}}/api/budget/advances/{{budget_advance_request_id}}/review
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "status": "approuvé",
+  "amount": 6.5,
+  "comment": "Montant ajuste apres verification"
+}
+
+### Budget - Parent refuse une avance
+POST {{baseUrl}}/api/budget/advances/{{budget_advance_request_id}}/review
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "status": "rejected",
+  "comment": "Demande reportee a la prochaine periode"
+}
+
+### Members - Lister les membres du foyer actif
+GET {{baseUrl}}/api/household/members
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+X-Household-Id: {{active_household_id}}
+
+### Members - Ajouter un membre (email optionnel => email bidon auto-genere)
+POST {{baseUrl}}/api/household/members
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+X-Household-Id: {{active_household_id}}
+
+{
+  "name": "Enfant Ajoute",
+  "role": "enfant"
+}
+
+> {%
+  const memberId = response.body.member?.id ?? response.body.user?.id;
+  if (memberId) {
+    client.global.set("member_id", memberId);
+    client.log("member_id capture : " + memberId);
+  }
+%}
+
+### Members - Modifier un membre (parent uniquement)
+PATCH {{baseUrl}}/api/household/members/{{member_id}}
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+X-Household-Id: {{active_household_id}}
+
+{
+  "name": "Enfant Modifie",
+  "nickname": "Super Hero",
+  "role": "enfant"
+}
+
+### Members - Supprimer un membre (parent uniquement)
+DELETE {{baseUrl}}/api/household/members/{{member_id}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+X-Household-Id: {{active_household_id}}
+
+### Members - Regenerer un acces temporaire (si must_change_password=true)
+POST {{baseUrl}}/api/household/members/{{member_id}}/temporary-access
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+X-Household-Id: {{active_household_id}}

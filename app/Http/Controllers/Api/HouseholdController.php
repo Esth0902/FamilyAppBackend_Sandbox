@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Http\Controllers\Api\Concerns\ResolvesHouseholdContext;
 use App\Http\Controllers\Controller;
 use App\Models\BudgetSetting;
 use App\Models\DietaryTag;
@@ -26,6 +27,8 @@ use OpenAI\Laravel\Facades\OpenAI;
 
 class HouseholdController extends Controller
 {
+    use ResolvesHouseholdContext;
+
     private const DIETARY_TAG_TYPES = ['diet', 'allergen', 'dislike', 'restriction', 'cuisine_rule'];
     private const DIETARY_TAG_SIMILARITY_THRESHOLD = 0.10;
     private const TASK_STATUS_TODO = 'à faire';
@@ -36,6 +39,17 @@ class HouseholdController extends Controller
         if ($request->user()->households()->exists()) {
             return response()->json(['message' => 'Vous avez deja un foyer.'], 403);
         }
+
+        $payload = $request->all();
+        if (isset($payload['members']) && is_array($payload['members'])) {
+            foreach ($payload['members'] as $index => $memberPayload) {
+                if (!is_array($memberPayload) || !array_key_exists('email', $memberPayload)) {
+                    continue;
+                }
+                $payload['members'][$index]['email'] = $this->normalizeEmailInput($memberPayload['email']);
+            }
+        }
+        $request->replace($payload);
 
         $validated = $request->validate([
             'household_name' => 'nullable|string|max:255',
@@ -178,62 +192,317 @@ class HouseholdController extends Controller
         });
     }
 
+    public function members(Request $request)
+    {
+        [$household, $role] = $this->resolveHouseholdWithRole($request);
+
+        $members = $household->users()
+            ->select([
+                'users.id',
+                'users.name',
+                'users.email',
+                'users.must_change_password',
+            ])
+            ->orderByRaw("CASE WHEN household_user.role = ? THEN 0 ELSE 1 END", [User::ROLE_PARENT])
+            ->orderBy('users.name')
+            ->get()
+            ->map(fn(User $member): array => $this->toHouseholdMemberPayload($member))
+            ->values();
+
+        return response()->json(JsonUtf8Sanitizer::sanitize([
+            'household' => [
+                'id' => (int) $household->id,
+                'name' => (string) $household->name,
+            ],
+            'permissions' => [
+                'can_manage_members' => $role === User::ROLE_PARENT,
+            ],
+            'members' => $members,
+        ]));
+    }
+
     public function addMember(Request $request)
     {
+        [$household, $role] = $this->resolveHouseholdWithRole($request);
+        $this->ensureParentRole($role);
+
+        if ($request->exists('email')) {
+            $request->merge([
+                'email' => $this->normalizeEmailInput($request->input('email')),
+            ]);
+        }
+
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'email' => 'nullable|email|unique:users,email',
+            'email' => 'nullable|email|max:255|unique:users,email',
             'role' => 'required|in:parent,enfant',
         ]);
 
-        $adminUser = $request->user();
-
-        $household = $adminUser->households()->wherePivot('role', User::ROLE_PARENT)->first();
-        if (!$household) {
-            $household = $adminUser->households()->firstOrFail();
+        $name = trim((string) $validated['name']);
+        if ($name === '') {
+            throw ValidationException::withMessages([
+                'name' => ['Le nom du membre est obligatoire.'],
+            ]);
         }
 
         $finalEmail = empty($validated['email'])
-            ? $this->generateUniqueHouseholdEmail($validated['name'])
-            : $validated['email'];
-
+            ? $this->generateUniqueHouseholdEmail($name)
+            : trim((string) $validated['email']);
+        $memberRole = (string) $validated['role'];
         $rawPassword = Str::random(10);
 
-        return DB::transaction(function () use ($validated, $finalEmail, $household, $rawPassword) {
+        return DB::transaction(function () use ($household, $name, $finalEmail, $memberRole, $rawPassword) {
             $newUser = User::create([
-                'name' => $validated['name'],
+                'name' => $name,
                 'email' => $finalEmail,
                 'password' => Hash::make($rawPassword),
                 'must_change_password' => true,
             ]);
 
             $household->users()->attach($newUser->id, [
-                'role' => $validated['role'],
-                'nickname' => $validated['name'],
+                'role' => $memberRole,
+                'nickname' => $name,
             ]);
 
-            if ($validated['role'] === User::ROLE_CHILD) {
-                BudgetSetting::create([
-                    'household_id' => $household->id,
-                    'user_id' => $newUser->id,
-                    'base_amount' => 0,
-                ]);
+            if ($memberRole === User::ROLE_CHILD) {
+                BudgetSetting::query()->firstOrCreate(
+                    [
+                        'household_id' => $household->id,
+                        'user_id' => $newUser->id,
+                    ],
+                    [
+                        'base_amount' => 0,
+                        'recurrence' => 'weekly',
+                        'reset_day' => 1,
+                        'allow_advances' => false,
+                        'max_advance_amount' => 0,
+                    ]
+                );
             }
 
-            $shareText = "Bonjour {$validated['name']} !\n\n"
-                . "Ton compte FamilyApp est pret.\n"
-                . "Email : {$finalEmail}\n"
-                . "Mot de passe temporaire : {$rawPassword}\n\n"
-                . "Connecte-toi puis modifie ton mot de passe des la premiere connexion.";
+            $member = $household->users()
+                ->where('users.id', $newUser->id)
+                ->firstOrFail();
 
             return response()->json(JsonUtf8Sanitizer::sanitize([
                 'message' => 'Compte cree avec succes',
                 'user' => $newUser,
+                'member' => $this->toHouseholdMemberPayload($member),
                 'generated_password' => $rawPassword,
                 'generated_email' => $finalEmail,
-                'share_text' => $shareText,
+                'share_text' => $this->buildMemberShareText($name, $finalEmail, $rawPassword),
             ]), 201);
         });
+    }
+
+    public function updateMember(Request $request, User $member)
+    {
+        [$household, $role] = $this->resolveHouseholdWithRole($request);
+        $this->ensureParentRole($role);
+
+        if ($request->exists('email')) {
+            $request->merge([
+                'email' => $this->normalizeEmailInput($request->input('email')),
+            ]);
+        }
+
+        $validated = $request->validate([
+            'name' => 'sometimes|string|max:255',
+            'email' => 'sometimes|nullable|email|max:255|unique:users,email,' . $member->id,
+            'role' => 'sometimes|in:parent,enfant',
+            'nickname' => 'sometimes|nullable|string|max:255',
+        ]);
+
+        if (count($validated) === 0) {
+            throw ValidationException::withMessages([
+                'member' => ['Aucune modification demandee.'],
+            ]);
+        }
+
+        $memberInHousehold = $household->users()
+            ->where('users.id', $member->id)
+            ->first();
+        if (!$memberInHousehold) {
+            abort(404, 'Membre introuvable pour ce foyer.');
+        }
+
+        $currentRole = (string) ($memberInHousehold->pivot->role ?? User::ROLE_CHILD);
+        $nextRole = array_key_exists('role', $validated)
+            ? (string) $validated['role']
+            : $currentRole;
+
+        if ($currentRole === User::ROLE_PARENT && $nextRole !== User::ROLE_PARENT) {
+            $this->ensureParentCanBeRemoved($household, (int) $member->id);
+        }
+
+        $name = array_key_exists('name', $validated)
+            ? trim((string) $validated['name'])
+            : (string) $member->name;
+        if ($name === '') {
+            throw ValidationException::withMessages([
+                'name' => ['Le nom du membre est obligatoire.'],
+            ]);
+        }
+
+        $updates = [];
+        if (array_key_exists('name', $validated)) {
+            $updates['name'] = $name;
+        }
+
+        $emailWasGenerated = false;
+        if (array_key_exists('email', $validated)) {
+            $providedEmail = $this->normalizeEmailInput($validated['email'] ?? null) ?? '';
+            if ($providedEmail === '') {
+                $providedEmail = $this->generateUniqueHouseholdEmail($name);
+                $emailWasGenerated = true;
+            }
+            $updates['email'] = $providedEmail;
+        }
+
+        return DB::transaction(function () use (
+            $household,
+            $member,
+            $currentRole,
+            $nextRole,
+            $updates,
+            $validated,
+            $name,
+            $emailWasGenerated
+        ) {
+            if (!empty($updates)) {
+                $member->forceFill($updates)->save();
+            }
+
+            $pivotUpdates = [];
+            if (array_key_exists('role', $validated)) {
+                $pivotUpdates['role'] = $nextRole;
+            }
+            if (array_key_exists('nickname', $validated)) {
+                $nickname = trim((string) ($validated['nickname'] ?? ''));
+                $pivotUpdates['nickname'] = $nickname !== '' ? $nickname : $name;
+            }
+
+            if (!empty($pivotUpdates)) {
+                $household->users()->updateExistingPivot($member->id, $pivotUpdates);
+            }
+
+            if ($currentRole !== $nextRole) {
+                if ($nextRole === User::ROLE_CHILD) {
+                    BudgetSetting::query()->firstOrCreate(
+                        [
+                            'household_id' => $household->id,
+                            'user_id' => $member->id,
+                        ],
+                        [
+                            'base_amount' => 0,
+                            'recurrence' => 'weekly',
+                            'reset_day' => 1,
+                            'allow_advances' => false,
+                            'max_advance_amount' => 0,
+                        ]
+                    );
+                } else {
+                    BudgetSetting::query()
+                        ->where('household_id', $household->id)
+                        ->where('user_id', $member->id)
+                        ->delete();
+                }
+            }
+
+            $freshMember = $household->users()
+                ->where('users.id', $member->id)
+                ->firstOrFail();
+
+            $response = [
+                'message' => 'Membre mis a jour.',
+                'member' => $this->toHouseholdMemberPayload($freshMember),
+            ];
+
+            if ($emailWasGenerated) {
+                $response['generated_email'] = (string) $freshMember->email;
+            }
+
+            return response()->json(JsonUtf8Sanitizer::sanitize($response));
+        });
+    }
+
+    public function deleteMember(Request $request, User $member)
+    {
+        [$household, $role] = $this->resolveHouseholdWithRole($request);
+        $this->ensureParentRole($role);
+
+        $memberInHousehold = $household->users()
+            ->where('users.id', $member->id)
+            ->first();
+        if (!$memberInHousehold) {
+            abort(404, 'Membre introuvable pour ce foyer.');
+        }
+
+        if ((int) $request->user()->id === (int) $member->id) {
+            throw ValidationException::withMessages([
+                'member' => ['Vous ne pouvez pas vous supprimer vous-meme du foyer.'],
+            ]);
+        }
+
+        $memberRole = (string) ($memberInHousehold->pivot->role ?? User::ROLE_CHILD);
+        if ($memberRole === User::ROLE_PARENT) {
+            $this->ensureParentCanBeRemoved($household, (int) $member->id);
+        }
+
+        DB::transaction(function () use ($household, $member): void {
+            $household->users()->detach($member->id);
+
+            BudgetSetting::query()
+                ->where('household_id', $household->id)
+                ->where('user_id', $member->id)
+                ->delete();
+        });
+
+        return response()->json([
+            'message' => 'Membre supprime du foyer.',
+            'deleted_member_id' => (int) $member->id,
+        ]);
+    }
+
+    public function refreshMemberTemporaryAccess(Request $request, User $member)
+    {
+        [$household, $role] = $this->resolveHouseholdWithRole($request);
+        $this->ensureParentRole($role);
+
+        $memberInHousehold = $household->users()
+            ->where('users.id', $member->id)
+            ->first();
+        if (!$memberInHousehold) {
+            abort(404, 'Membre introuvable pour ce foyer.');
+        }
+
+        if (!(bool) $member->must_change_password) {
+            throw ValidationException::withMessages([
+                'member' => ['Ce membre a deja change son mot de passe.'],
+            ]);
+        }
+
+        $rawPassword = Str::random(10);
+        $member->forceFill([
+            'password' => $rawPassword,
+            'must_change_password' => true,
+        ])->save();
+
+        $freshMember = $household->users()
+            ->where('users.id', $member->id)
+            ->firstOrFail();
+
+        return response()->json(JsonUtf8Sanitizer::sanitize([
+            'message' => 'Nouvel acces temporaire genere.',
+            'member' => $this->toHouseholdMemberPayload($freshMember),
+            'generated_email' => (string) $freshMember->email,
+            'generated_password' => $rawPassword,
+            'share_text' => $this->buildMemberShareText(
+                (string) $freshMember->name,
+                (string) $freshMember->email,
+                $rawPassword
+            ),
+        ]));
     }
 
     public function dashboard(Request $request)
@@ -242,7 +511,7 @@ class HouseholdController extends Controller
         if (!$user) {
             return response()->json(['message' => 'Non authentifie.'], 401);
         }
-        $household = $user->households()->first();
+        $household = $this->resolveCurrentHousehold($user, $request);
 
         if (!$household) {
             return response()->json(['message' => 'Aucun foyer', 'requires_setup' => true]);
@@ -391,7 +660,7 @@ class HouseholdController extends Controller
 
     public function config(Request $request)
     {
-        $household = $this->resolveEditableHousehold($request->user());
+        $household = $this->resolveEditableHousehold($request);
         $household->load(['settings', 'mealSettings', 'dietaryTags']);
 
         $settings = $household->settings;
@@ -481,7 +750,7 @@ class HouseholdController extends Controller
 
     public function dietaryTags(Request $request)
     {
-        $household = $this->resolveEditableHousehold($request->user());
+        $household = $this->resolveEditableHousehold($request);
         $search = trim((string)$request->query('q', ''));
         $type = trim((string)$request->query('type', ''));
         $normalizedType = in_array($type, self::DIETARY_TAG_TYPES, true) ? $type : null;
@@ -526,7 +795,8 @@ class HouseholdController extends Controller
 
     public function createDietaryTag(Request $request)
     {
-        $household = $this->resolveEditableHousehold($request->user());
+        [$household, $role] = $this->resolveHouseholdWithRole($request);
+        $this->ensureParentRole($role);
         $validated = $request->validate([
             'label' => 'required|string|min:2|max:120',
             'type' => 'required|string|in:' . implode(',', self::DIETARY_TAG_TYPES),
@@ -598,7 +868,8 @@ class HouseholdController extends Controller
 
     public function updateConfig(Request $request)
     {
-        $household = $this->resolveEditableHousehold($request->user());
+        [$household, $role] = $this->resolveHouseholdWithRole($request);
+        $this->ensureParentRole($role);
 
         $validated = $request->validate([
             'household_name' => 'nullable|string|max:255',
@@ -1089,11 +1360,7 @@ class HouseholdController extends Controller
             'role' => $role,
             'generated_email' => $finalEmail,
             'generated_password' => $rawPassword,
-            'share_text' => "Bonjour {$name} !\n\n"
-                . "Ton compte FamilyApp est pret.\n"
-                . "Email : {$finalEmail}\n"
-                . "Mot de passe temporaire : {$rawPassword}\n\n"
-                . "Connecte-toi puis modifie ton mot de passe des la premiere connexion.",
+            'share_text' => $this->buildMemberShareText($name, $finalEmail, $rawPassword),
         ];
     }
 
@@ -1393,16 +1660,61 @@ class HouseholdController extends Controller
         $household->dietaryTags()->sync($tagIds);
     }
 
-    private function resolveEditableHousehold(User $user): Household
+    private function toHouseholdMemberPayload(User $member): array
     {
-        $household = $user->households()->wherePivot('role', User::ROLE_PARENT)->first();
-        if ($household) {
-            return $household;
+        return [
+            'id' => (int) $member->id,
+            'name' => (string) $member->name,
+            'email' => (string) $member->email,
+            'must_change_password' => (bool) $member->must_change_password,
+            'role' => (string) ($member->pivot->role ?? User::ROLE_CHILD),
+            'nickname' => (string) ($member->pivot->nickname ?? $member->name),
+        ];
+    }
+
+    private function buildMemberShareText(string $name, string $email, string $rawPassword): string
+    {
+        return "Bonjour {$name} !\n\n"
+            . "Ton compte FamilyApp est prêt.\n"
+            . "Connecte-toi avec les identifiants suivants :\n"
+            . "Email : {$email}\n"
+            . "Mot de passe temporaire : {$rawPassword}\n\n"
+            . "N'oublie pas de modifier ton mot de passe dès la première connexion.";
+    }
+
+    private function ensureParentCanBeRemoved(Household $household, int $memberId): void
+    {
+        $otherParentExists = $household->users()
+            ->wherePivot('role', User::ROLE_PARENT)
+            ->where('users.id', '!=', $memberId)
+            ->exists();
+
+        if (!$otherParentExists) {
+            throw ValidationException::withMessages([
+                'role' => ['Le foyer doit conserver au moins un parent.'],
+            ]);
+        }
+    }
+
+    private function resolveEditableHousehold(Request $request): Household
+    {
+        $user = $request->user();
+        $selectedHousehold = $this->resolveCurrentHousehold($user, $request);
+
+        if ($selectedHousehold) {
+            $selectedRole = (string) ($selectedHousehold->pivot->role ?? User::ROLE_CHILD);
+            if ($selectedRole === User::ROLE_PARENT) {
+                return $selectedHousehold;
+            }
         }
 
-        $household = $user->households()->first();
-        if ($household) {
-            return $household;
+        $firstParentHousehold = $user->households()->wherePivot('role', User::ROLE_PARENT)->first();
+        if ($firstParentHousehold) {
+            return $firstParentHousehold;
+        }
+
+        if ($selectedHousehold) {
+            return $selectedHousehold;
         }
 
         throw ValidationException::withMessages([
@@ -1420,5 +1732,15 @@ class HouseholdController extends Controller
         } while (User::where('email', $email)->exists());
 
         return $email;
+    }
+
+    private function normalizeEmailInput(mixed $value): ?string
+    {
+        if (!is_string($value)) {
+            return null;
+        }
+
+        $normalized = mb_strtolower(trim($value));
+        return $normalized !== '' ? $normalized : null;
     }
 }

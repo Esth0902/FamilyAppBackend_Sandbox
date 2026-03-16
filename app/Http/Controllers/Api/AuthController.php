@@ -18,12 +18,19 @@ class AuthController extends Controller
 {
     public function login(Request $request)
     {
+        $request->merge([
+            'email' => $this->normalizeEmailInput($request->input('email')),
+        ]);
+
         $credentials = $request->validate([
             'email' => ['required', 'email'],
             'password' => ['required'],
         ]);
 
-        $user = User::where('email', $credentials['email'])
+        $normalizedEmail = (string) $credentials['email'];
+
+        $user = User::query()
+            ->whereRaw('LOWER(email) = ?', [$normalizedEmail])
             ->with('households')
             ->first();
 
@@ -59,6 +66,10 @@ class AuthController extends Controller
 
     public function register(Request $request)
     {
+        $request->merge([
+            'email' => $this->normalizeEmailInput($request->input('email')),
+        ]);
+
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', 'max:255', 'unique:users,email'],
@@ -81,6 +92,10 @@ class AuthController extends Controller
 
     public function forgotPassword(Request $request)
     {
+        $request->merge([
+            'email' => $this->normalizeEmailInput($request->input('email')),
+        ]);
+
         $request->validate([
             'email' => ['required', 'email'],
         ]);
@@ -89,12 +104,16 @@ class AuthController extends Controller
         PasswordFacade::sendResetLink($request->only('email'));
 
         return response()->json([
-            'message' => 'Si un compte existe pour cet email, un lien de reinitialisation a ete envoye.',
+            'message' => 'Si un compte existe pour cet e-mail, un lien de réinitialisation a été envoyé.',
         ]);
     }
 
     public function resetPassword(Request $request)
     {
+        $request->merge([
+            'email' => $this->normalizeEmailInput($request->input('email')),
+        ]);
+
         $validated = $request->validate([
             'token' => ['required', 'string'],
             'email' => ['required', 'email'],
@@ -133,6 +152,9 @@ class AuthController extends Controller
     public function changeInitialCredentials(Request $request)
     {
         $user = $request->user();
+        $request->merge([
+            'email' => $this->normalizeEmailInput($request->input('email')),
+        ]);
 
         $validated = $request->validate([
             'email' => ['required', 'email', 'max:255', 'unique:users,email,' . $user->id],
@@ -155,13 +177,19 @@ class AuthController extends Controller
     {
         $user = $request->user();
 
+        if ($request->exists('email')) {
+            $request->merge([
+                'email' => $this->normalizeEmailInput($request->input('email')),
+            ]);
+        }
+
         $validated = $request->validate([
             'email' => ['nullable', 'email', 'max:255', 'unique:users,email,' . $user->id],
             'password' => ['nullable', 'confirmed', Password::min(8)],
             'current_password' => ['required_with:email,password', 'string'],
         ]);
 
-        $emailWasProvided = array_key_exists('email', $validated);
+        $emailWasProvided = array_key_exists('email', $validated) && $validated['email'] !== null;
         $passwordWasProvided = array_key_exists('password', $validated);
 
         if (! $emailWasProvided && ! $passwordWasProvided) {
@@ -236,5 +264,15 @@ class AuthController extends Controller
                 'nickname' => $updatedMembership->pivot->nickname,
             ],
         ]));
+    }
+
+    private function normalizeEmailInput(mixed $value): ?string
+    {
+        if (!is_string($value)) {
+            return null;
+        }
+
+        $normalized = mb_strtolower(trim($value));
+        return $normalized !== '' ? $normalized : null;
     }
 }
