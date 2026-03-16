@@ -81,6 +81,7 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'must.change.password'])->gro
     Route::post('/tasks/instances', [TaskController::class, 'storeInstance']);
     Route::patch('/tasks/instances/{instance}', [TaskController::class, 'updateInstance']);
     Route::post('/tasks/instances/{instance}/validate', [TaskController::class, 'validateInstance']);
+    Route::post('/tasks/instances/{instance}/reassignment-request', [TaskController::class, 'requestInstanceReassignment']);
 
     // Calendar
     Route::get('/calendar/board', [CalendarController::class, 'board']);
@@ -94,6 +95,8 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'must.change.password'])->gro
     // Notifications
     Route::get('/notifications/pending', [NotificationController::class, 'pending']);
     Route::post('/notifications/{notification}/read', [NotificationController::class, 'read']);
+    Route::post('/notifications/{notification}/household-invite-response', [NotificationController::class, 'respondHouseholdInvite']);
+    Route::post('/notifications/{notification}/task-reassignment-response', [NotificationController::class, 'respondTaskReassignmentInvite']);
 
     // Shopping Lists
     Route::get('/shopping-lists', [ShoppingListController::class, 'index']);

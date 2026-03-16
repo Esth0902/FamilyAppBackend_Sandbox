@@ -14,7 +14,10 @@ class TaskTemplate extends Model
         'description',
         'recurrence',
         'start_date',
+        'end_date',
         'recurrence_days',
+        'assignee_user_ids',
+        'rotation_user_ids',
         'is_rotation',
         'rotation_cycle_weeks',
         'is_inter_household_alternating',
@@ -24,7 +27,10 @@ class TaskTemplate extends Model
 
     protected $casts = [
         'start_date' => 'date',
+        'end_date' => 'date',
         'recurrence_days' => 'array',
+        'assignee_user_ids' => 'array',
+        'rotation_user_ids' => 'array',
         'is_rotation' => 'boolean',
         'rotation_cycle_weeks' => 'integer',
         'is_inter_household_alternating' => 'boolean',

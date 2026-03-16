@@ -7,6 +7,7 @@ use App\Models\HouseholdSetting;
 use App\Models\TaskInstance;
 use App\Models\TaskTemplate;
 use App\Models\User;
+use App\Models\UserNotification;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -240,7 +241,7 @@ class TaskApiTest extends TestCase
             'has_calendar' => true,
         ]);
 
-        TaskTemplate::query()->create([
+        $template = TaskTemplate::query()->create([
             'household_id' => $household->id,
             'name' => 'Sortir les poubelles',
             'description' => 'Une semaine sur deux',
@@ -274,9 +275,11 @@ class TaskApiTest extends TestCase
         ]);
         $this->assertDatabaseMissing('task_instances', [
             'due_date' => '2026-03-09',
+            'task_template_id' => $template->id,
         ]);
         $this->assertDatabaseMissing('task_instances', [
             'due_date' => '2026-03-23',
+            'task_template_id' => $template->id,
         ]);
     }
 
@@ -296,7 +299,7 @@ class TaskApiTest extends TestCase
             ],
         ]);
 
-        TaskTemplate::query()->create([
+        $template = TaskTemplate::query()->create([
             'household_id' => $household->id,
             'name' => 'Sortir les poubelles',
             'description' => 'Le vendredi',
@@ -328,9 +331,11 @@ class TaskApiTest extends TestCase
         ]);
         $this->assertDatabaseMissing('task_instances', [
             'due_date' => '2026-03-13',
+            'task_template_id' => $template->id,
         ]);
         $this->assertDatabaseMissing('task_instances', [
             'due_date' => '2026-03-27',
+            'task_template_id' => $template->id,
         ]);
     }
 
@@ -423,6 +428,280 @@ class TaskApiTest extends TestCase
         ]);
     }
 
+    public function test_parent_can_create_routine_with_multiple_assignees(): void
+    {
+        [$parent, $childA, $childB] = $this->createHouseholdWithMembers(2);
+        $household = $parent->households()->firstOrFail();
+
+        HouseholdSetting::query()->create([
+            'household_id' => $household->id,
+            'has_tasks' => true,
+            'has_calendar' => true,
+        ]);
+
+        Sanctum::actingAs($parent);
+
+        $this->postJson('/api/tasks/templates', [
+            'name' => 'Arroser les plantes',
+            'description' => 'Chaque lundi',
+            'recurrence' => 'weekly',
+            'start_date' => '2026-03-09',
+            'end_date' => '2026-03-30',
+            'recurrence_days' => [1],
+            'is_rotation' => false,
+            'assignee_user_ids' => [$childA->id, $childB->id],
+        ])
+            ->assertCreated()
+            ->assertJsonPath('template.recurrence', 'weekly')
+            ->assertJsonPath('template.start_date', '2026-03-09')
+            ->assertJsonPath('template.end_date', '2026-03-30')
+            ->assertJsonPath('template.assignee_user_ids.0', $childA->id)
+            ->assertJsonPath('template.assignee_user_ids.1', $childB->id);
+    }
+
+    public function test_daily_and_weekly_recurrence_are_auto_normalized_based_on_selected_days(): void
+    {
+        [$parent, $child] = $this->createHouseholdWithMembers();
+        $household = $parent->households()->firstOrFail();
+
+        HouseholdSetting::query()->create([
+            'household_id' => $household->id,
+            'has_tasks' => true,
+            'has_calendar' => true,
+        ]);
+
+        Sanctum::actingAs($parent);
+
+        $createResponse = $this->postJson('/api/tasks/templates', [
+            'name' => 'Passer le balai',
+            'recurrence' => 'daily',
+            'start_date' => '2026-03-01',
+            'recurrence_days' => [1, 2, 3],
+            'assignee_user_ids' => [$child->id],
+        ])
+            ->assertCreated()
+            ->assertJsonPath('template.recurrence', 'weekly')
+            ->assertJsonPath('template.recurrence_days.0', 1)
+            ->assertJsonPath('template.recurrence_days.2', 3);
+
+        $templateId = (int) ($createResponse->json('template.id') ?? 0);
+        $this->assertGreaterThan(0, $templateId);
+
+        $this->patchJson("/api/tasks/templates/{$templateId}", [
+            'recurrence' => 'weekly',
+            'recurrence_days' => [1, 2, 3, 4, 5, 6, 7],
+        ])
+            ->assertOk()
+            ->assertJsonPath('template.recurrence', 'daily');
+    }
+
+    public function test_recurring_generation_respects_template_start_and_end_dates(): void
+    {
+        [$parent, $child] = $this->createHouseholdWithMembers();
+        $household = $parent->households()->firstOrFail();
+
+        HouseholdSetting::query()->create([
+            'household_id' => $household->id,
+            'has_tasks' => true,
+            'has_calendar' => true,
+        ]);
+
+        $template = TaskTemplate::query()->create([
+            'household_id' => $household->id,
+            'name' => 'Nettoyer la table',
+            'recurrence' => 'weekly',
+            'start_date' => '2026-03-09',
+            'end_date' => '2026-03-16',
+            'recurrence_days' => [1],
+            'assignee_user_ids' => [$child->id],
+            'is_rotation' => false,
+            'rotation_cycle_weeks' => 1,
+            'fixed_user_id' => $child->id,
+        ]);
+
+        Sanctum::actingAs($parent);
+
+        $response = $this->getJson('/api/tasks/board?from=2026-03-02&to=2026-03-30')
+            ->assertOk();
+
+        $dueDates = collect($response->json('instances'))
+            ->pluck('due_date')
+            ->values()
+            ->all();
+
+        $this->assertSame(['2026-03-09', '2026-03-16'], $dueDates);
+        $this->assertDatabaseMissing('task_instances', [
+            'due_date' => '2026-03-02',
+            'task_template_id' => $template->id,
+        ]);
+        $this->assertDatabaseMissing('task_instances', [
+            'due_date' => '2026-03-23',
+            'task_template_id' => $template->id,
+        ]);
+    }
+
+    public function test_parent_can_create_punctual_task_with_multiple_assignees(): void
+    {
+        [$parent, $childA, $childB] = $this->createHouseholdWithMembers(2);
+        $household = $parent->households()->firstOrFail();
+
+        HouseholdSetting::query()->create([
+            'household_id' => $household->id,
+            'has_tasks' => true,
+            'has_calendar' => true,
+        ]);
+
+        Sanctum::actingAs($parent);
+
+        $response = $this->postJson('/api/tasks/instances', [
+            'name' => 'Lancer une machine',
+            'due_date' => '2026-03-18',
+            'end_date' => '2026-03-18',
+            'user_ids' => [$childA->id, $childB->id],
+        ])->assertCreated();
+
+        $instanceId = (int) ($response->json('instance.id') ?? 0);
+        $this->assertGreaterThan(0, $instanceId);
+        $this->assertDatabaseHas('task_instance_assignments', [
+            'task_instance_id' => $instanceId,
+            'user_id' => $childA->id,
+        ]);
+        $this->assertDatabaseHas('task_instance_assignments', [
+            'task_instance_id' => $instanceId,
+            'user_id' => $childB->id,
+        ]);
+    }
+
+    public function test_assigned_child_can_request_reassignment_and_invited_member_can_accept(): void
+    {
+        [$parent, $childA, $childB] = $this->createHouseholdWithMembers(2);
+        $household = $parent->households()->firstOrFail();
+
+        HouseholdSetting::query()->create([
+            'household_id' => $household->id,
+            'has_tasks' => true,
+            'has_calendar' => true,
+        ]);
+
+        $template = TaskTemplate::query()->create([
+            'household_id' => $household->id,
+            'name' => 'Sortir les cartons',
+            'recurrence' => 'once',
+            'is_rotation' => false,
+            'rotation_cycle_weeks' => 1,
+        ]);
+
+        $instance = TaskInstance::query()->create([
+            'task_template_id' => $template->id,
+            'user_id' => $childA->id,
+            'due_date' => '2026-03-21',
+            'status' => 'à faire',
+            'validated_by_parent' => false,
+        ]);
+
+        Sanctum::actingAs($childA);
+        $this->postJson("/api/tasks/instances/{$instance->id}/reassignment-request", [
+            'invited_user_id' => $childB->id,
+        ])
+            ->assertStatus(202);
+
+        /** @var UserNotification $notification */
+        $notification = UserNotification::query()
+            ->where('type', 'task_reassignment_invite')
+            ->where('user_id', $childB->id)
+            ->latest('id')
+            ->firstOrFail();
+
+        Sanctum::actingAs($childB);
+        $this->postJson("/api/notifications/{$notification->id}/task-reassignment-response", [
+            'action' => 'accept',
+        ])
+            ->assertOk()
+            ->assertJsonPath('invitation.status', 'accepted');
+
+        $this->assertDatabaseHas('task_instances', [
+            'id' => $instance->id,
+            'user_id' => $childB->id,
+        ]);
+        $this->assertDatabaseHas('task_instance_assignments', [
+            'task_instance_id' => $instance->id,
+            'user_id' => $childB->id,
+        ]);
+        $this->assertDatabaseMissing('task_instance_assignments', [
+            'task_instance_id' => $instance->id,
+            'user_id' => $childA->id,
+        ]);
+    }
+
+    public function test_accepted_reassignment_is_preserved_on_recurring_instance_generation(): void
+    {
+        [$parent, $childA, $childB] = $this->createHouseholdWithMembers(2);
+        $household = $parent->households()->firstOrFail();
+
+        HouseholdSetting::query()->create([
+            'household_id' => $household->id,
+            'has_tasks' => true,
+            'has_calendar' => true,
+        ]);
+
+        TaskTemplate::query()->create([
+            'household_id' => $household->id,
+            'name' => 'Vider le lave-vaisselle',
+            'recurrence' => 'weekly',
+            'start_date' => '2026-03-10',
+            'recurrence_days' => [2],
+            'assignee_user_ids' => [$childA->id],
+            'is_rotation' => false,
+            'rotation_cycle_weeks' => 1,
+            'fixed_user_id' => $childA->id,
+        ]);
+
+        Sanctum::actingAs($parent);
+        $this->getJson('/api/tasks/board?from=2026-03-16&to=2026-03-18')->assertOk();
+
+        /** @var TaskInstance $instance */
+        $instance = TaskInstance::query()
+            ->whereDate('due_date', '2026-03-17')
+            ->orderByDesc('id')
+            ->firstOrFail();
+
+        Sanctum::actingAs($childA);
+        $this->postJson("/api/tasks/instances/{$instance->id}/reassignment-request", [
+            'invited_user_id' => $childB->id,
+        ])->assertStatus(202);
+
+        /** @var UserNotification $notification */
+        $notification = UserNotification::query()
+            ->where('type', 'task_reassignment_invite')
+            ->where('user_id', $childB->id)
+            ->latest('id')
+            ->firstOrFail();
+
+        Sanctum::actingAs($childB);
+        $this->postJson("/api/notifications/{$notification->id}/task-reassignment-response", [
+            'action' => 'accept',
+        ])->assertOk();
+
+        $this->assertDatabaseHas('task_instances', [
+            'id' => $instance->id,
+            'user_id' => $childB->id,
+        ]);
+
+        Sanctum::actingAs($parent);
+        $response = $this->getJson('/api/tasks/board?from=2026-03-16&to=2026-03-18')->assertOk();
+
+        $payloadInstance = collect($response->json('instances'))
+            ->first(static fn(array $candidate): bool => (int) ($candidate['id'] ?? 0) === (int) $instance->id);
+
+        $this->assertNotNull($payloadInstance);
+        $this->assertSame($childB->id, (int) data_get($payloadInstance, 'assignee.id'));
+        $this->assertSame([$childB->id], collect(data_get($payloadInstance, 'assignees', []))
+            ->pluck('id')
+            ->map(static fn($id): int => (int) $id)
+            ->values()
+            ->all());
+    }
+
     private function createHouseholdWithMembers(int $childCount = 1): array
     {
         $parent = User::factory()->create([
@@ -453,5 +732,6 @@ class TaskApiTest extends TestCase
         return $members;
     }
 }
+
 
 

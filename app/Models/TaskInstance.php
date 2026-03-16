@@ -4,6 +4,8 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class TaskInstance extends Model
 {
@@ -30,5 +32,16 @@ class TaskInstance extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class, 'user_id');
+    }
+
+    public function assignees(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'task_instance_assignments', 'task_instance_id', 'user_id')
+            ->withTimestamps();
+    }
+
+    public function assignments(): HasMany
+    {
+        return $this->hasMany(TaskInstanceAssignment::class, 'task_instance_id');
     }
 }

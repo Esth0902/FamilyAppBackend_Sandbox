@@ -5,6 +5,7 @@ namespace Tests\Feature\Api;
 use App\Models\BudgetSetting;
 use App\Models\Household;
 use App\Models\User;
+use App\Models\UserNotification;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -79,12 +80,91 @@ class HouseholdMemberApiTest extends TestCase
         ])->assertForbidden();
     }
 
-    public function test_parent_gets_french_error_when_inviting_existing_email(): void
+    public function test_parent_can_create_additional_household(): void
+    {
+        [, $parent] = $this->createHouseholdWithMembers();
+        Sanctum::actingAs($parent);
+
+        $response = $this->postJson('/api/households', [
+            'household_name' => 'Foyer secondaire',
+        ]);
+
+        $response
+            ->assertCreated()
+            ->assertJsonPath('household.name', 'Foyer secondaire');
+
+        $newHouseholdId = (int) $response->json('household.id');
+        $this->assertGreaterThan(0, $newHouseholdId);
+
+        $this->assertDatabaseHas('household_user', [
+            'household_id' => $newHouseholdId,
+            'user_id' => $parent->id,
+            'role' => User::ROLE_PARENT,
+        ]);
+    }
+
+    public function test_parent_can_create_additional_household_with_existing_user_invitation(): void
     {
         [, $parent] = $this->createHouseholdWithMembers();
         $existingUser = User::factory()->create([
-            'email' => 'deja.utilise@example.com',
+            'name' => 'Membre Existant',
+            'email' => 'membre.existant@example.com',
+            'must_change_password' => false,
         ]);
+        $otherHousehold = Household::query()->create(['name' => 'Autre foyer']);
+        $otherHousehold->users()->attach($existingUser->id, [
+            'role' => User::ROLE_PARENT,
+            'nickname' => 'Parent autre foyer',
+        ]);
+
+        Sanctum::actingAs($parent);
+
+        $response = $this->postJson('/api/households', [
+            'household_name' => 'Nouveau foyer',
+            'members' => [
+                [
+                    'name' => 'Membre Existant',
+                    'email' => $existingUser->email,
+                    'role' => User::ROLE_CHILD,
+                ],
+            ],
+        ]);
+
+        $response
+            ->assertCreated()
+            ->assertJsonPath('household.name', 'Nouveau foyer')
+            ->assertJsonPath('created_members.0.id', $existingUser->id)
+            ->assertJsonPath('created_members.0.invitation_status', 'pending')
+            ->assertJsonPath('created_members.0.invited_email', $existingUser->email);
+
+        $newHouseholdId = (int) $response->json('household.id');
+        $this->assertGreaterThan(0, $newHouseholdId);
+
+        $this->assertDatabaseHas('user_notifications', [
+            'household_id' => $newHouseholdId,
+            'user_id' => $existingUser->id,
+            'type' => 'household_invite',
+        ]);
+        $this->assertDatabaseMissing('household_user', [
+            'household_id' => $newHouseholdId,
+            'user_id' => $existingUser->id,
+        ]);
+    }
+
+    public function test_parent_invites_existing_user_from_another_household(): void
+    {
+        [$household, $parent] = $this->createHouseholdWithMembers();
+        $existingUser = User::factory()->create([
+            'name' => 'Membre Existant',
+            'email' => 'deja.utilise@example.com',
+            'must_change_password' => false,
+        ]);
+        $otherHousehold = Household::query()->create(['name' => 'Autre foyer']);
+        $otherHousehold->users()->attach($existingUser->id, [
+            'role' => User::ROLE_PARENT,
+            'nickname' => 'Parent autre foyer',
+        ]);
+
         Sanctum::actingAs($parent);
 
         $response = $this->postJson('/api/household/members', [
@@ -94,9 +174,116 @@ class HouseholdMemberApiTest extends TestCase
         ]);
 
         $response
-            ->assertStatus(422)
-            ->assertJsonValidationErrors(['email'])
-            ->assertJsonPath('errors.email.0', "Cet e-mail est déjà utilisé.");
+            ->assertStatus(202)
+            ->assertJsonPath('invitation.status', 'pending')
+            ->assertJsonPath('invitation.invited_user_id', $existingUser->id)
+            ->assertJsonPath('invitation.household_id', $household->id)
+            ->assertJsonPath('invitation.role', User::ROLE_CHILD);
+
+        $this->assertDatabaseHas('user_notifications', [
+            'household_id' => $household->id,
+            'user_id' => $existingUser->id,
+            'type' => 'household_invite',
+        ]);
+        $this->assertDatabaseMissing('household_user', [
+            'household_id' => $household->id,
+            'user_id' => $existingUser->id,
+        ]);
+    }
+
+    public function test_invited_user_can_accept_household_invitation(): void
+    {
+        [$household, $parent] = $this->createHouseholdWithMembers();
+        $invitedUser = User::factory()->create([
+            'name' => 'Utilisateur Invite',
+            'must_change_password' => false,
+        ]);
+
+        $notification = UserNotification::query()->create([
+            'household_id' => $household->id,
+            'user_id' => $invitedUser->id,
+            'type' => 'household_invite',
+            'title' => 'Invitation de foyer',
+            'body' => 'Invitation test',
+            'data' => [
+                'household_id' => (int) $household->id,
+                'household_name' => (string) $household->name,
+                'inviter_user_id' => (int) $parent->id,
+                'inviter_name' => (string) $parent->name,
+                'invited_role' => User::ROLE_CHILD,
+                'status' => 'pending',
+            ],
+        ]);
+
+        Sanctum::actingAs($invitedUser);
+
+        $this->postJson("/api/notifications/{$notification->id}/household-invite-response", [
+            'action' => 'accept',
+        ])
+            ->assertOk()
+            ->assertJsonPath('invitation.status', 'accepted')
+            ->assertJsonPath('invitation.household_id', $household->id)
+            ->assertJsonPath('invitation.role', User::ROLE_CHILD)
+            ->assertJsonPath('user.id', $invitedUser->id);
+
+        $this->assertDatabaseHas('household_user', [
+            'household_id' => $household->id,
+            'user_id' => $invitedUser->id,
+            'role' => User::ROLE_CHILD,
+        ]);
+        $this->assertDatabaseHas('budget_settings', [
+            'household_id' => $household->id,
+            'user_id' => $invitedUser->id,
+        ]);
+
+        $notification->refresh();
+        $this->assertSame('accepted', (string) data_get($notification->data, 'status'));
+        $this->assertNotNull($notification->read_at);
+    }
+
+    public function test_invited_user_can_refuse_household_invitation(): void
+    {
+        [$household, $parent] = $this->createHouseholdWithMembers();
+        $invitedUser = User::factory()->create([
+            'name' => 'Utilisateur Invite',
+            'must_change_password' => false,
+        ]);
+
+        $notification = UserNotification::query()->create([
+            'household_id' => $household->id,
+            'user_id' => $invitedUser->id,
+            'type' => 'household_invite',
+            'title' => 'Invitation de foyer',
+            'body' => 'Invitation test',
+            'data' => [
+                'household_id' => (int) $household->id,
+                'household_name' => (string) $household->name,
+                'inviter_user_id' => (int) $parent->id,
+                'inviter_name' => (string) $parent->name,
+                'invited_role' => User::ROLE_PARENT,
+                'status' => 'pending',
+            ],
+        ]);
+
+        Sanctum::actingAs($invitedUser);
+
+        $this->postJson("/api/notifications/{$notification->id}/household-invite-response", [
+            'action' => 'refuse',
+        ])
+            ->assertOk()
+            ->assertJsonPath('invitation.status', 'refused')
+            ->assertJsonPath('invitation.household_id', $household->id)
+            ->assertJsonPath('invitation.role', User::ROLE_PARENT)
+            ->assertJsonPath('user.id', $invitedUser->id);
+
+        $this->assertDatabaseMissing('household_user', [
+            'household_id' => $household->id,
+            'user_id' => $invitedUser->id,
+        ]);
+
+        $notification->refresh();
+        $this->assertSame('refused', (string) data_get($notification->data, 'status'));
+        $this->assertNotNull($notification->read_at);
     }
 
     public function test_child_cannot_update_household_config_or_create_dietary_tags(): void

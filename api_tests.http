@@ -1,4 +1,4 @@
-### Variables
+﻿### Variables
 
 @baseUrl = http://localhost:8000
 @contentType = application/json
@@ -21,7 +21,7 @@ Accept: application/json
 > {%
     if (response.status === 200 || response.status === 201) {
         client.global.set("auth_token", response.body.token);
-        client.log("Token d'inscription capturé : " + response.body.token);
+        client.log("Token d'inscription capturÃ© : " + response.body.token);
     } else {
         client.log("Register status: " + response.status);
     }
@@ -39,7 +39,7 @@ Accept: {{contentType}}
 
 > {%
     client.global.set("auth_token", response.body.token);
-    client.log("Token capturé : " + response.body.token);
+    client.log("Token capturÃ© : " + response.body.token);
 %}
 
 ### Test de login insensible a la casse sur email
@@ -114,7 +114,7 @@ Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 X-Household-Id: {{active_household_id}}
 
-### Créer un ménage (capture household_id)
+### CrÃ©er un mÃ©nage (capture household_id)
 POST {{baseUrl}}/api/households
 Content-Type: {{contentType}}
 Accept: {{contentType}}
@@ -127,45 +127,56 @@ Authorization: Bearer {{auth_token}}
 > {%
     const hid = response.body.id ?? response.body.data?.id;
     client.global.set("household_id", hid);
-    client.log("household_id capturé : " + hid);
+    client.log("household_id capturÃ© : " + hid);
 %}
-### 4) Demander des idées à l'IA (intent=ideas)
+
+### CrÃ©er un foyer supplÃ©mentaire (multi-foyer)
+# L'utilisateur connectÃ© devient parent du nouveau foyer.
+POST {{baseUrl}}/api/households
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "household_name": "DeuxiÃ¨me foyer test"
+}
+### 4) Demander des idÃ©es Ã  l'IA (intent=ideas)
 POST {{baseUrl}}/api/recipes/suggest
 Content-Type: {{contentType}}
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
 {
-  "preferences": "Végétarien, cuisine italienne",
+  "preferences": "VÃ©gÃ©tarien, cuisine italienne",
   "count": 3,
   "intent": "ideas"
 }
 
-### 5) Demander une recette spécifique à l'IA (intent=specific)
+### 5) Demander une recette spÃ©cifique Ã  l'IA (intent=specific)
 POST {{baseUrl}}/api/recipes/suggest
 Content-Type: {{contentType}}
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
 {
-  "preferences": "Lasagnes aux légumes",
+  "preferences": "Lasagnes aux lÃ©gumes",
   "intent": "specific"
 }
 
-### 6) Preview recette (endpoint dédié)
+### 6) Preview recette (endpoint dÃ©diÃ©)
 POST {{baseUrl}}/api/recipes/preview-ai
 Content-Type: {{contentType}}
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
 {
-  "title": "Lasagnes aux légumes"
+  "title": "Lasagnes aux lÃ©gumes"
 }
 
 ### 7) AI Store (exemple valide AVEC type + category)
 # IMPORTANT:
-# - type doit être: petit-déjeuner, entrée, plat principal, dessert, collation, boisson, autre
-# - category doit être: fruits et légumes, boucherie, poissonnerie, crèmerie, épicerie salée, épicerie sucrée, boissons, surgelés, entretien et hygiène, autre
+# - type doit Ãªtre: petit-dÃ©jeuner, entrÃ©e, plat principal, dessert, collation, boisson, autre
+# - category doit Ãªtre: fruits et lÃ©gumes, boucherie, poissonnerie, crÃ¨merie, Ã©picerie salÃ©e, Ã©picerie sucrÃ©e, boissons, surgelÃ©s, entretien et hygiÃ¨ne, autre
 POST {{baseUrl}}/api/recipes/ai-store
 Content-Type: {{contentType}}
 Accept: {{contentType}}
@@ -173,39 +184,39 @@ Authorization: Bearer {{auth_token}}
 
 {
   "household_id": 3,
-  "title": "Lasagnes aux légumes",
+  "title": "Lasagnes aux lÃ©gumes",
   "type": "plat principal",
-  "description": "Un plat italien classique revisité avec des légumes pour une version végétarienne délicieuse.",
-  "instructions": "Étape 1 : Préchauffez le four à 180°C. Étape 2 : ...",
+  "description": "Un plat italien classique revisitÃ© avec des lÃ©gumes pour une version vÃ©gÃ©tarienne dÃ©licieuse.",
+  "instructions": "Ã‰tape 1 : PrÃ©chauffez le four Ã  180Â°C. Ã‰tape 2 : ...",
   "ingredients": [
-    { "name": "pâtes à lasagnes", "quantity": 250, "unit": "g", "category": "épicerie salée" },
-    { "name": "oignon", "quantity": 1, "unit": "unité", "category": "fruits et légumes" },
-    { "name": "poivron", "quantity": 1, "unit": "unité", "category": "fruits et légumes" },
-    { "name": "courgette", "quantity": 1, "unit": "unité", "category": "fruits et légumes" },
-    { "name": "tomates concassées", "quantity": 400, "unit": "g", "category": "épicerie salée" },
-    { "name": "ricotta", "quantity": 200, "unit": "g", "category": "crèmerie" },
-    { "name": "parmesan râpé", "quantity": 40, "unit": "g", "category": "crèmerie" },
-    { "name": "sel", "quantity": 0, "unit": "au goût", "category": "autre" }
+    { "name": "pÃ¢tes Ã  lasagnes", "quantity": 250, "unit": "g", "category": "Ã©picerie salÃ©e" },
+    { "name": "oignon", "quantity": 1, "unit": "unitÃ©", "category": "fruits et lÃ©gumes" },
+    { "name": "poivron", "quantity": 1, "unit": "unitÃ©", "category": "fruits et lÃ©gumes" },
+    { "name": "courgette", "quantity": 1, "unit": "unitÃ©", "category": "fruits et lÃ©gumes" },
+    { "name": "tomates concassÃ©es", "quantity": 400, "unit": "g", "category": "Ã©picerie salÃ©e" },
+    { "name": "ricotta", "quantity": 200, "unit": "g", "category": "crÃ¨merie" },
+    { "name": "parmesan rÃ¢pÃ©", "quantity": 40, "unit": "g", "category": "crÃ¨merie" },
+    { "name": "sel", "quantity": 0, "unit": "au goÃ»t", "category": "autre" }
   ]
 }
 
 > {%
     const rid = response.body.id ?? response.body.data?.id;
     client.global.set("recipe_id", rid);
-    client.log("recipe_id capturé : " + rid);
+    client.log("recipe_id capturÃ© : " + rid);
 %}
 
-### 8) Vérifier la liste des recettes (doit contenir la recette AI)
+### 8) VÃ©rifier la liste des recettes (doit contenir la recette AI)
 GET {{baseUrl}}/api/recipes
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
-### 9) Récupérer la recette créée
+### 9) RÃ©cupÃ©rer la recette crÃ©Ã©e
 GET {{baseUrl}}/api/recipes/{{recipe_id}}
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
-### 9b) Récupérer la recette avec portions ciblées (scaling)
+### 9b) RÃ©cupÃ©rer la recette avec portions ciblÃ©es (scaling)
 GET {{baseUrl}}/api/recipes/{{recipe_id}}?servings=4
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
@@ -223,7 +234,7 @@ Authorization: Bearer {{auth_token}}
   "description": "test",
   "instructions": "test",
   "ingredients": [
-    { "name": "oignon", "quantity": 1, "unit": "unité", "category": "fruits et légumes" }
+    { "name": "oignon", "quantity": 1, "unit": "unitÃ©", "category": "fruits et lÃ©gumes" }
   ]
 }
 
@@ -235,17 +246,17 @@ Authorization: Bearer {{auth_token}}
 
 {
   "household_id": 3,
-  "title": "Test mauvaise catégorie",
+  "title": "Test mauvaise catÃ©gorie",
   "type": "plat principal",
   "description": "test",
   "instructions": "test",
   "ingredients": [
-    { "name": "oignon", "quantity": 1, "unit": "unité", "category": "frais" }
+    { "name": "oignon", "quantity": 1, "unit": "unitÃ©", "category": "frais" }
   ]
 }
 
-### 12) Test pivot unique: doublon ingrédient (ne doit PAS casser si tu utilises sync)
-# Si ton controller est encore en attach(), ça risque 500.
+### 12) Test pivot unique: doublon ingrÃ©dient (ne doit PAS casser si tu utilises sync)
+# Si ton controller est encore en attach(), Ã§a risque 500.
 POST {{baseUrl}}/api/recipes/ai-store
 Content-Type: {{contentType}}
 Accept: {{contentType}}
@@ -258,8 +269,8 @@ Authorization: Bearer {{auth_token}}
   "description": "test",
   "instructions": "test",
   "ingredients": [
-    { "name": "oignon", "quantity": 1, "unit": "unité", "category": "fruits et légumes" },
-    { "name": "oignon", "quantity": 2, "unit": "unité", "category": "fruits et légumes" }
+    { "name": "oignon", "quantity": 1, "unit": "unitÃ©", "category": "fruits et lÃ©gumes" },
+    { "name": "oignon", "quantity": 2, "unit": "unitÃ©", "category": "fruits et lÃ©gumes" }
   ]
 }
 
@@ -271,14 +282,14 @@ Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
 {
-  "title": "Lasagnes aux légumes (update)",
+  "title": "Lasagnes aux lÃ©gumes (update)",
   "type": "plat principal",
   "base_servings": 4,
   "description": "update",
   "instructions": "update",
   "ingredients": [
-    { "name": "oignon", "quantity": 1, "unit": "unité", "category": "fruits et légumes" },
-    { "name": "ricotta", "quantity": 250, "unit": "g", "category": "crèmerie" }
+    { "name": "oignon", "quantity": 1, "unit": "unitÃ©", "category": "fruits et lÃ©gumes" },
+    { "name": "ricotta", "quantity": 250, "unit": "g", "category": "crÃ¨merie" }
   ]
 }
 
@@ -379,7 +390,7 @@ Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
 ### Creer un nouveau dietary tag (avec anti-doublon embedding)
-# Endpoint réservé au rôle parent (403 pour un enfant)
+# Endpoint rÃ©servÃ© au rÃ´le parent (403 pour un enfant)
 POST {{baseUrl}}/api/households/dietary-tags
 Content-Type: {{contentType}}
 Accept: {{contentType}}
@@ -391,7 +402,7 @@ Authorization: Bearer {{auth_token}}
 }
 
 ### Mettre a jour la configuration du foyer courant
-# Endpoint réservé au rôle parent (403 pour un enfant)
+# Endpoint rÃ©servÃ© au rÃ´le parent (403 pour un enfant)
 PATCH {{baseUrl}}/api/households/config
 Content-Type: {{contentType}}
 Accept: {{contentType}}
@@ -495,7 +506,7 @@ Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
 {
-  "title": "Sondage semaine test (corrigé)",
+  "title": "Sondage semaine test (corrigÃ©)",
   "recipe_ids": [1, 2],
   "planning_start_date": "2026-02-24",
   "planning_end_date": "2026-03-02",
@@ -552,12 +563,12 @@ GET {{baseUrl}}/api/meal-polls/history
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
-### Dashboard - Vue complète sondages + tâches + recettes préférées
+### Dashboard - Vue complÃ¨te sondages + tÃ¢ches + recettes prÃ©fÃ©rÃ©es
 GET {{baseUrl}}/api/dashboard
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
-# Réponse attendue:
+# RÃ©ponse attendue:
 # - polls_open / polls_closed / polls
 # - tasks_summary: { enabled, range: { from, to }, todo_count, done_count, validated_count }
 
@@ -610,19 +621,19 @@ Authorization: Bearer {{auth_token}}
   }
 %}
 
-### Shopping Lists - Détail d'une liste
-# Réponse attendue:
-# - list.items: éléments de la liste
-# - list.items[].created_by (id, name): membre qui a ajouté l'élément
-# - planned_recipe_suggestions: repas planifiés (résultat sondage/meal plan) + ingrédients détaillés
+### Shopping Lists - DÃ©tail d'une liste
+# RÃ©ponse attendue:
+# - list.items: Ã©lÃ©ments de la liste
+# - list.items[].created_by (id, name): membre qui a ajoutÃ© l'Ã©lÃ©ment
+# - planned_recipe_suggestions: repas planifiÃ©s (rÃ©sultat sondage/meal plan) + ingrÃ©dients dÃ©taillÃ©s
 GET {{baseUrl}}/api/shopping-lists/{{shopping_list_id}}
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
-### Shopping Lists - Ajouter un ingrédient manuel
-# Règle d'accès:
+### Shopping Lists - Ajouter un ingrÃ©dient manuel
+# RÃ¨gle d'accÃ¨s:
 # - parent: peut ajouter manuel + non-manuel
-# - enfant: peut ajouter uniquement un élément manuel (is_manual_addition=true implicite)
+# - enfant: peut ajouter uniquement un Ã©lÃ©ment manuel (is_manual_addition=true implicite)
 # - end_date est optionnelle pour les taches ponctuelles et genere une instance par jour
 POST {{baseUrl}}/api/shopping-lists/{{shopping_list_id}}/items
 Content-Type: {{contentType}}
@@ -736,10 +747,10 @@ Authorization: Bearer {{auth_token}}
   "inter_household_week_start": "2026-03-09"
 }
 
-### Tasks - Créer une instance (parent ou enfant)
-# Règle:
-# - parent: peut attribuer à n'importe quel membre du foyer via user_id
-# - enfant: ne peut s'attribuer qu'à lui-même (même si user_id est envoyé)
+### Tasks - CrÃ©er une instance (parent ou enfant)
+# RÃ¨gle:
+# - parent: peut attribuer Ã  n'importe quel membre du foyer via user_id
+# - enfant: ne peut s'attribuer qu'Ã  lui-mÃªme (mÃªme si user_id est envoyÃ©)
 # - end_date est optionnelle pour les taches ponctuelles et genere une instance par jour
 POST {{baseUrl}}/api/tasks/instances
 Content-Type: {{contentType}}
@@ -767,7 +778,7 @@ Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
 {
-  "status": "réalisée"
+  "status": "rÃ©alisÃ©e"
 }
 
 ### Tasks - Valider une tache realisee (parent)
@@ -775,6 +786,59 @@ POST {{baseUrl}}/api/tasks/instances/{{task_instance_id}}/validate
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
+### Tasks - Exemple template multi-assignation + bornes de routine
+POST {{baseUrl}}/api/tasks/templates
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "name": "Routine multi membre",
+  "description": "Exemple pour daily/weekly/monthly",
+  "recurrence": "weekly",
+  "start_date": "2026-03-15",
+  "end_date": null,
+  "recurrence_days": [1, 3, 5],
+  "assignee_user_ids": [{{member_id}}],
+  "is_rotation": false,
+  "rotation_cycle_weeks": 1,
+  "rotation_user_ids": [],
+  "is_inter_household_alternating": false,
+  "inter_household_week_start": null
+}
+
+### Tasks - Exemple rotation ordonnee
+PATCH {{baseUrl}}/api/tasks/templates/{{task_template_id}}
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "is_rotation": true,
+  "rotation_cycle_weeks": 1,
+  "rotation_user_ids": [{{member_id}}],
+  "assignee_user_ids": []
+}
+
+### Tasks - Demande de reprise d une tache
+POST {{baseUrl}}/api/tasks/instances/{{task_instance_id}}/reassignment-request
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "invited_user_id": {{member_id}}
+}
+
+### Notifications - Reponse a une demande de reprise de tache
+POST {{baseUrl}}/api/notifications/{{notification_id}}/task-reassignment-response
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "action": "accept"
+}
 ### Tasks - Supprimer un template (parent)
 DELETE {{baseUrl}}/api/tasks/templates/{{task_template_id}}
 Accept: {{contentType}}
@@ -923,17 +987,17 @@ Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
 
-### Recettes globales - Récupérer toutes les recettes visibles
+### Recettes globales - RÃ©cupÃ©rer toutes les recettes visibles
 GET {{baseUrl}}/api/recipes?scope=all
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
-### Recettes globales - Récupérer uniquement Mes recettes
+### Recettes globales - RÃ©cupÃ©rer uniquement Mes recettes
 GET {{baseUrl}}/api/recipes?scope=mine
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
-### Recettes globales - Ajouter une recette globale à Mes recettes
+### Recettes globales - Ajouter une recette globale Ã  Mes recettes
 POST {{baseUrl}}/api/recipes/{{recipe_id}}/save
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
@@ -1015,7 +1079,7 @@ Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
 {
-  "status": "approuvé",
+  "status": "approuvÃ©",
   "amount": 6.5,
   "comment": "Montant ajuste apres verification"
 }
@@ -1057,6 +1121,22 @@ X-Household-Id: {{active_household_id}}
   }
 %}
 
+### Members - Inviter un utilisateur existant (deja dans un autre foyer)
+# Comportement attendu:
+# - HTTP 202 avec invitation.status = pending
+# - Une notification de type household_invite est creee pour l'utilisateur invite
+POST {{baseUrl}}/api/household/members
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+X-Household-Id: {{active_household_id}}
+
+{
+  "name": "Membre Existant",
+  "email": "membre.existant@test.com",
+  "role": "enfant"
+}
+
 ### Members - Modifier un membre (parent uniquement)
 PATCH {{baseUrl}}/api/household/members/{{member_id}}
 Content-Type: {{contentType}}
@@ -1081,3 +1161,38 @@ POST {{baseUrl}}/api/household/members/{{member_id}}/temporary-access
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 X-Household-Id: {{active_household_id}}
+
+### Notifications - Recuperer les invitations de foyer en attente
+GET {{baseUrl}}/api/notifications/pending
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+> {%
+  const notifications = Array.isArray(response.body.notifications) ? response.body.notifications : [];
+  const invite = notifications.find((item) => item?.type === "household_invite");
+  if (invite?.id) {
+    client.global.set("invite_notification_id", invite.id);
+    client.log("invite_notification_id capture: " + invite.id);
+  }
+%}
+
+### Notifications - Invitation foyer: accepter
+POST {{baseUrl}}/api/notifications/{{invite_notification_id}}/household-invite-response
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "action": "accept"
+}
+
+### Notifications - Invitation foyer: refuser
+POST {{baseUrl}}/api/notifications/{{invite_notification_id}}/household-invite-response
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "action": "refuse"
+}
+

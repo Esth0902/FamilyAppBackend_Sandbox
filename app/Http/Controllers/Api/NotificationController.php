@@ -3,12 +3,24 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\BudgetSetting;
+use App\Models\Household;
+use App\Models\TaskInstance;
+use App\Models\User;
 use App\Models\UserNotification;
+use App\Services\RealtimePublisher;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class NotificationController extends Controller
 {
+    public function __construct(
+        private readonly RealtimePublisher $realtimePublisher,
+    ) {
+    }
+
     public function pending(Request $request): JsonResponse
     {
         $userId = (int)$request->user()->id;
@@ -16,18 +28,49 @@ class NotificationController extends Controller
 
         $notifications = UserNotification::query()
             ->where('user_id', $userId)
-            ->whereNull('sent_at')
             ->where(function ($query) use ($now): void {
-                $query->whereNull('scheduled_for')
-                    ->orWhere('scheduled_for', '<=', $now);
+                $query
+                    ->where(function ($pendingSendQuery) use ($now): void {
+                        $pendingSendQuery
+                            ->whereNull('sent_at')
+                            ->where(function ($scheduleQuery) use ($now): void {
+                                $scheduleQuery
+                                    ->whereNull('scheduled_for')
+                                    ->orWhere('scheduled_for', '<=', $now);
+                            });
+                    })
+                    ->orWhere(function ($inviteQuery): void {
+                        $inviteQuery
+                            ->where('type', 'household_invite')
+                            ->whereNull('read_at')
+                            ->where(function ($statusQuery): void {
+                                $statusQuery
+                                    ->whereNull('data->status')
+                                    ->orWhere('data->status', 'pending');
+                            });
+                    })
+                    ->orWhere(function ($inviteQuery): void {
+                        $inviteQuery
+                            ->where('type', 'task_reassignment_invite')
+                            ->whereNull('read_at')
+                            ->where(function ($statusQuery): void {
+                                $statusQuery
+                                    ->whereNull('data->status')
+                                    ->orWhere('data->status', 'pending');
+                            });
+                    });
             })
             ->orderBy('created_at')
             ->limit(30)
             ->get();
 
-        if ($notifications->isNotEmpty()) {
+        $unsentNotificationIds = $notifications
+            ->filter(fn(UserNotification $notification): bool => is_null($notification->sent_at))
+            ->pluck('id');
+
+        if ($unsentNotificationIds->isNotEmpty()) {
             UserNotification::query()
-                ->whereIn('id', $notifications->pluck('id'))
+                ->whereIn('id', $unsentNotificationIds)
                 ->update(['sent_at' => $now]);
         }
 
@@ -57,5 +100,275 @@ class NotificationController extends Controller
 
         return response()->json(['message' => 'Notification lue.']);
     }
-}
 
+    public function respondHouseholdInvite(Request $request, UserNotification $notification): JsonResponse
+    {
+        if ((int)$notification->user_id !== (int)$request->user()->id) {
+            return response()->json(['message' => 'Acces refuse.'], 403);
+        }
+
+        $validated = $request->validate([
+            'action' => ['required', 'in:accept,refuse'],
+        ]);
+        $action = (string) $validated['action'];
+
+        if ((string) $notification->type !== 'household_invite') {
+            throw ValidationException::withMessages([
+                'notification' => ["Cette notification n'est pas une invitation de foyer."],
+            ]);
+        }
+
+        $user = $request->user();
+        $now = now();
+
+        return DB::transaction(function () use ($notification, $user, $action, $now): JsonResponse {
+            /** @var UserNotification $locked */
+            $locked = UserNotification::query()
+                ->whereKey($notification->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $data = is_array($locked->data) ? $locked->data : [];
+            $currentStatus = (string) ($data['status'] ?? 'pending');
+
+            if (in_array($currentStatus, ['accepted', 'refused'], true)) {
+                throw ValidationException::withMessages([
+                    'notification' => ['Cette invitation a deja ete traitee.'],
+                ]);
+            }
+
+            $householdId = (int) ($data['household_id'] ?? 0);
+            $invitedRole = (string) ($data['invited_role'] ?? User::ROLE_CHILD);
+            if (!in_array($invitedRole, [User::ROLE_PARENT, User::ROLE_CHILD], true)) {
+                $invitedRole = User::ROLE_CHILD;
+            }
+
+            $household = Household::query()->find($householdId);
+            if (!$household) {
+                throw ValidationException::withMessages([
+                    'household' => ['Ce foyer n existe plus.'],
+                ]);
+            }
+
+            $isAccepted = $action === 'accept';
+            if ($isAccepted) {
+                $alreadyMember = $household->users()
+                    ->where('users.id', $user->id)
+                    ->exists();
+
+                if (!$alreadyMember) {
+                    $household->users()->attach($user->id, [
+                        'role' => $invitedRole,
+                        'nickname' => (string) ($user->name ?? 'Membre'),
+                    ]);
+                }
+
+                if ($invitedRole === User::ROLE_CHILD) {
+                    BudgetSetting::query()->firstOrCreate(
+                        [
+                            'household_id' => $household->id,
+                            'user_id' => $user->id,
+                        ],
+                        [
+                            'base_amount' => 0,
+                            'recurrence' => 'weekly',
+                            'reset_day' => 1,
+                            'allow_advances' => false,
+                            'max_advance_amount' => 0,
+                        ]
+                    );
+                }
+            }
+
+            $data['status'] = $isAccepted ? 'accepted' : 'refused';
+            $data['responded_at'] = $now->toIso8601String();
+            $data['responded_action'] = $action;
+
+            $locked->forceFill([
+                'data' => $data,
+                'read_at' => $now,
+            ])->save();
+
+            DB::afterCommit(function () use ($household, $user, $data): void {
+                $this->realtimePublisher->publishHousehold(
+                    householdId: (int) $household->id,
+                    module: 'household',
+                    type: 'member_invite_responded',
+                    payload: [
+                        'household_id' => (int) $household->id,
+                        'user_id' => (int) ($user->id ?? 0),
+                        'user_name' => (string) ($user->name ?? 'Membre'),
+                        'status' => (string) ($data['status'] ?? 'pending'),
+                        'responded_action' => (string) ($data['responded_action'] ?? ''),
+                        'responded_at' => (string) ($data['responded_at'] ?? ''),
+                    ],
+                );
+            });
+
+            $freshUser = User::query()
+                ->whereKey($user->id)
+                ->with('households')
+                ->firstOrFail();
+
+            return response()->json([
+                'message' => $isAccepted ? 'Invitation acceptee.' : 'Invitation refusee.',
+                'invitation' => [
+                    'status' => $data['status'],
+                    'household_id' => $household->id,
+                    'household_name' => $household->name,
+                    'role' => $invitedRole,
+                ],
+                'user' => $freshUser,
+            ]);
+        });
+    }
+
+    public function respondTaskReassignmentInvite(Request $request, UserNotification $notification): JsonResponse
+    {
+        if ((int) $notification->user_id !== (int) $request->user()->id) {
+            return response()->json(['message' => 'Acces refuse.'], 403);
+        }
+
+        $validated = $request->validate([
+            'action' => ['required', 'in:accept,refuse'],
+        ]);
+        $action = (string) $validated['action'];
+
+        if ((string) $notification->type !== 'task_reassignment_invite') {
+            throw ValidationException::withMessages([
+                'notification' => ["Cette notification n'est pas une demande de reprise de tache."],
+            ]);
+        }
+
+        $user = $request->user();
+        $now = now();
+
+        return DB::transaction(function () use ($notification, $user, $action, $now): JsonResponse {
+            /** @var UserNotification $locked */
+            $locked = UserNotification::query()
+                ->whereKey($notification->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $data = is_array($locked->data) ? $locked->data : [];
+            $currentStatus = (string) ($data['status'] ?? 'pending');
+            if (in_array($currentStatus, ['accepted', 'refused'], true)) {
+                throw ValidationException::withMessages([
+                    'notification' => ['Cette demande a deja ete traitee.'],
+                ]);
+            }
+
+            $instanceId = (int) ($data['task_instance_id'] ?? 0);
+            $householdId = (int) ($data['household_id'] ?? 0);
+            $requesterUserId = (int) ($data['requester_user_id'] ?? 0);
+            $invitedUserId = (int) ($data['invited_user_id'] ?? 0);
+            if ($instanceId <= 0 || $householdId <= 0 || $requesterUserId <= 0 || $invitedUserId <= 0) {
+                throw ValidationException::withMessages([
+                    'notification' => ['Cette demande est invalide.'],
+                ]);
+            }
+
+            if ((int) $user->id !== $invitedUserId) {
+                throw ValidationException::withMessages([
+                    'notification' => ['Cette demande ne vous est pas destinee.'],
+                ]);
+            }
+
+            $instance = TaskInstance::query()
+                ->whereKey($instanceId)
+                ->with([
+                    'template:id,household_id,name',
+                    'assignees:id,name',
+                ])
+                ->lockForUpdate()
+                ->first();
+            if (!$instance || (int) ($instance->template?->household_id ?? 0) !== $householdId) {
+                throw ValidationException::withMessages([
+                    'task' => ['La tache liee a cette demande est introuvable.'],
+                ]);
+            }
+
+            $isAccepted = $action === 'accept';
+            if ($isAccepted) {
+                $assigneeIds = $instance->assignees
+                    ->map(static fn(User $assignee): int => (int) $assignee->id)
+                    ->filter(static fn(int $id): bool => $id > 0)
+                    ->values()
+                    ->all();
+                if (count($assigneeIds) === 0 && (int) $instance->user_id > 0) {
+                    $assigneeIds = [(int) $instance->user_id];
+                }
+
+                $assigneeIds[] = $invitedUserId;
+                $assigneeIds = collect($assigneeIds)
+                    ->map(static fn($id): int => (int) $id)
+                    ->filter(static fn(int $id): bool => $id > 0)
+                    ->unique()
+                    ->values()
+                    ->all();
+
+                if ($requesterUserId !== $invitedUserId) {
+                    $assigneeIds = collect($assigneeIds)
+                        ->reject(static fn(int $id): bool => $id === $requesterUserId)
+                        ->values()
+                        ->all();
+                }
+
+                if (count($assigneeIds) === 0) {
+                    $assigneeIds = [$invitedUserId];
+                }
+
+                $primaryAssigneeId = (int) ($assigneeIds[0] ?? $invitedUserId);
+                $instance->assignees()->sync($assigneeIds);
+                if ((int) $instance->user_id !== $primaryAssigneeId) {
+                    $instance->update(['user_id' => $primaryAssigneeId]);
+                }
+                $instance->load('assignees:id,name');
+            }
+
+            $data['status'] = $isAccepted ? 'accepted' : 'refused';
+            $data['responded_at'] = $now->toIso8601String();
+            $data['responded_action'] = $action;
+
+            $locked->forceFill([
+                'data' => $data,
+                'read_at' => $now,
+            ])->save();
+
+            DB::afterCommit(function () use ($requesterUserId, $locked, $data, $user, $action): void {
+                $this->realtimePublisher->publishUser(
+                    userId: $requesterUserId,
+                    module: 'notifications',
+                    type: 'task_reassignment_invite_responded',
+                    payload: [
+                        'notification_id' => (int) $locked->id,
+                        'task_instance_id' => (int) data_get($data, 'task_instance_id'),
+                        'task_name' => (string) data_get($data, 'task_name', 'Tache'),
+                        'status' => (string) data_get($data, 'status', 'pending'),
+                        'action' => $action,
+                        'responder_user_id' => (int) ($user->id ?? 0),
+                        'responder_name' => (string) ($user->name ?? 'Un membre'),
+                        'responded_at' => (string) data_get($data, 'responded_at', ''),
+                    ],
+                );
+            });
+
+            return response()->json([
+                'message' => $isAccepted ? 'Demande acceptee.' : 'Demande refusee.',
+                'invitation' => [
+                    'status' => (string) $data['status'],
+                    'task_instance_id' => $instanceId,
+                    'task_name' => (string) ($data['task_name'] ?? 'Tache'),
+                ],
+                'instance' => [
+                    'id' => (int) $instance->id,
+                    'assignee_id' => (int) $instance->user_id,
+                    'assignee_ids' => $instance->assignees
+                        ->map(static fn(User $assignee): int => (int) $assignee->id)
+                        ->values()
+                        ->all(),
+                ],
+            ]);
+        });
+    }
+}

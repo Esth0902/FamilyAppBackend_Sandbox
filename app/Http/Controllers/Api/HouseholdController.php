@@ -14,7 +14,9 @@ use App\Models\MealSetting;
 use App\Models\TaskInstance;
 use App\Models\TaskTemplate;
 use App\Support\JsonUtf8Sanitizer;
+use App\Services\RealtimePublisher;
 use App\Models\User;
+use App\Models\UserNotification;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -31,15 +33,16 @@ class HouseholdController extends Controller
 
     private const DIETARY_TAG_TYPES = ['diet', 'allergen', 'dislike', 'restriction', 'cuisine_rule'];
     private const DIETARY_TAG_SIMILARITY_THRESHOLD = 0.10;
-    private const TASK_STATUS_TODO = 'à faire';
-    private const TASK_STATUS_DONE = 'réalisée';
+    private const TASK_STATUS_TODO = 'Ã  faire';
+    private const TASK_STATUS_DONE = 'rÃ©alisÃ©e';
+
+    public function __construct(
+        private readonly RealtimePublisher $realtimePublisher,
+    ) {
+    }
 
     public function store(Request $request)
     {
-        if ($request->user()->households()->exists()) {
-            return response()->json(['message' => 'Vous avez deja un foyer.'], 403);
-        }
-
         $payload = $request->all();
         if (isset($payload['members']) && is_array($payload['members'])) {
             foreach ($payload['members'] as $index => $memberPayload) {
@@ -58,7 +61,7 @@ class HouseholdController extends Controller
             'members' => 'nullable|array',
             'members.*.name' => 'required|string|max:255',
             'members.*.role' => 'required|in:parent,enfant',
-            'members.*.email' => 'nullable|email|unique:users,email',
+            'members.*.email' => 'nullable|email',
             'members.*.budget' => 'nullable|array',
             'members.*.budget.base_amount' => 'nullable|numeric|min:0',
             'members.*.budget.recurrence' => 'nullable|in:weekly,monthly',
@@ -113,8 +116,6 @@ class HouseholdController extends Controller
 
             'modules.budget.enabled' => 'nullable|boolean',
             'modules.budget.settings' => 'nullable|array',
-        ], [
-            'members.*.email.unique' => "Cet e-mail est déjà utilisé.",
         ]);
 
         $householdName = trim((string)($validated['household_name'] ?? $validated['name'] ?? ''));
@@ -144,7 +145,8 @@ class HouseholdController extends Controller
                 $createdMembers[] = $this->createHouseholdMember(
                     $household,
                     $member,
-                    $modules['budget']['enabled']
+                    $modules['budget']['enabled'],
+                    $owner
                 );
             }
 
@@ -227,6 +229,7 @@ class HouseholdController extends Controller
     {
         [$household, $role] = $this->resolveHouseholdWithRole($request);
         $this->ensureParentRole($role);
+        $inviter = $request->user();
 
         if ($request->exists('email')) {
             $request->merge([
@@ -236,10 +239,8 @@ class HouseholdController extends Controller
 
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'email' => 'nullable|email|max:255|unique:users,email',
+            'email' => 'nullable|email|max:255',
             'role' => 'required|in:parent,enfant',
-        ], [
-            'email.unique' => "Cet e-mail est déjà utilisé.",
         ]);
 
         $name = trim((string) $validated['name']);
@@ -255,7 +256,76 @@ class HouseholdController extends Controller
         $memberRole = (string) $validated['role'];
         $rawPassword = Str::random(10);
 
-        return DB::transaction(function () use ($household, $name, $finalEmail, $memberRole, $rawPassword) {
+        return DB::transaction(function () use ($household, $name, $finalEmail, $memberRole, $rawPassword, $inviter) {
+            $existingUser = User::query()
+                ->whereRaw('LOWER(email) = ?', [mb_strtolower($finalEmail)])
+                ->first();
+
+            if ($existingUser) {
+                if ((int) $existingUser->id === (int) $inviter->id) {
+                    throw ValidationException::withMessages([
+                        'email' => ['Vous ne pouvez pas vous inviter vous-meme.'],
+                    ]);
+                }
+
+                $alreadyMember = $household->users()
+                    ->where('users.id', $existingUser->id)
+                    ->exists();
+                if ($alreadyMember) {
+                    throw ValidationException::withMessages([
+                        'email' => ['Cet utilisateur fait deja partie du foyer.'],
+                    ]);
+                }
+
+                $invitationNotification = UserNotification::query()->create([
+                    'household_id' => $household->id,
+                    'user_id' => $existingUser->id,
+                    'type' => 'household_invite',
+                    'title' => 'Invitation de foyer',
+                    'body' => sprintf(
+                        '%s vous invite a rejoindre le foyer %s.',
+                        (string) ($inviter->name ?? 'Un parent'),
+                        (string) $household->name
+                    ),
+                    'data' => [
+                        'household_id' => (int) $household->id,
+                        'household_name' => (string) $household->name,
+                        'inviter_user_id' => (int) $inviter->id,
+                        'inviter_name' => (string) ($inviter->name ?? 'Parent'),
+                        'invited_role' => $memberRole,
+                        'status' => 'pending',
+                    ],
+                ]);
+
+                DB::afterCommit(function () use ($invitationNotification, $household, $inviter, $existingUser, $memberRole): void {
+                    $this->realtimePublisher->publishUser(
+                        userId: (int) $existingUser->id,
+                        module: 'notifications',
+                        type: 'household_invite_created',
+                        payload: [
+                            'notification_id' => (int) $invitationNotification->id,
+                            'household_id' => (int) $household->id,
+                            'household_name' => (string) $household->name,
+                            'inviter_user_id' => (int) $inviter->id,
+                            'inviter_name' => (string) ($inviter->name ?? 'Parent'),
+                            'invited_role' => (string) $memberRole,
+                        ],
+                    );
+                });
+
+                return response()->json(JsonUtf8Sanitizer::sanitize([
+                    'message' => 'Invitation envoyee.',
+                    'invitation' => [
+                        'status' => 'pending',
+                        'invited_user_id' => (int) $existingUser->id,
+                        'invited_email' => (string) $existingUser->email,
+                        'household_id' => (int) $household->id,
+                        'household_name' => (string) $household->name,
+                        'role' => $memberRole,
+                    ],
+                ]), 202);
+            }
+
             $newUser = User::create([
                 'name' => $name,
                 'email' => $finalEmail,
@@ -316,7 +386,7 @@ class HouseholdController extends Controller
             'role' => 'sometimes|in:parent,enfant',
             'nickname' => 'sometimes|nullable|string|max:255',
         ], [
-            'email.unique' => "Cet e-mail est déjà utilisé.",
+            'email.unique' => "Cet e-mail est dÃ©jÃ  utilisÃ©.",
         ]);
 
         if (count($validated) === 0) {
@@ -1325,7 +1395,7 @@ class HouseholdController extends Controller
         return $normalized;
     }
 
-    private function createHouseholdMember(Household $household, array $member, bool $budgetEnabled): array
+    private function createHouseholdMember(Household $household, array $member, bool $budgetEnabled, User $inviter): array
     {
         $name = trim((string)$member['name']);
         $role = (string)$member['role'];
@@ -1333,6 +1403,61 @@ class HouseholdController extends Controller
         $finalEmail = isset($member['email']) && trim((string)$member['email']) !== ''
             ? trim((string)$member['email'])
             : $this->generateUniqueHouseholdEmail($name);
+
+        $existingUser = User::query()
+            ->whereRaw('LOWER(email) = ?', [mb_strtolower($finalEmail)])
+            ->first();
+        if ($existingUser) {
+            if ((int) $existingUser->id === (int) $inviter->id) {
+                throw ValidationException::withMessages([
+                    'members' => ['Vous ne pouvez pas vous ajouter comme membre invité.'],
+                ]);
+            }
+
+            $invitationNotification = UserNotification::query()->create([
+                'household_id' => $household->id,
+                'user_id' => $existingUser->id,
+                'type' => 'household_invite',
+                'title' => 'Invitation de foyer',
+                'body' => sprintf(
+                    '%s vous invite a rejoindre le foyer %s.',
+                    (string) ($inviter->name ?? 'Un parent'),
+                    (string) $household->name
+                ),
+                'data' => [
+                    'household_id' => (int) $household->id,
+                    'household_name' => (string) $household->name,
+                    'inviter_user_id' => (int) $inviter->id,
+                    'inviter_name' => (string) ($inviter->name ?? 'Parent'),
+                    'invited_role' => $role,
+                    'status' => 'pending',
+                ],
+            ]);
+
+            DB::afterCommit(function () use ($invitationNotification, $household, $inviter, $existingUser, $role): void {
+                $this->realtimePublisher->publishUser(
+                    userId: (int) $existingUser->id,
+                    module: 'notifications',
+                    type: 'household_invite_created',
+                    payload: [
+                        'notification_id' => (int) $invitationNotification->id,
+                        'household_id' => (int) $household->id,
+                        'household_name' => (string) $household->name,
+                        'inviter_user_id' => (int) $inviter->id,
+                        'inviter_name' => (string) ($inviter->name ?? 'Parent'),
+                        'invited_role' => (string) $role,
+                    ],
+                );
+            });
+
+            return [
+                'id' => (int) $existingUser->id,
+                'name' => (string) $existingUser->name,
+                'role' => $role,
+                'invitation_status' => 'pending',
+                'invited_email' => (string) $existingUser->email,
+            ];
+        }
 
         $rawPassword = Str::random(10);
         $newUser = User::create([
@@ -1681,11 +1806,11 @@ class HouseholdController extends Controller
     private function buildMemberShareText(string $name, string $email, string $rawPassword): string
     {
         return "Bonjour {$name} !\n\n"
-            . "Ton compte FamilyFlow est prêt.\n"
+            . "Ton compte FamilyFlow est prÃªt.\n"
             . "Connecte-toi avec les identifiants suivants :\n"
             . "Email : {$email}\n"
             . "Mot de passe temporaire : {$rawPassword}\n\n"
-            . "N'oublie pas de modifier ton mot de passe dès la première connexion.";
+            . "N'oublie pas de modifier ton mot de passe dÃ¨s la premiÃ¨re connexion.";
     }
 
     private function ensureParentCanBeRemoved(Household $household, int $memberId): void
