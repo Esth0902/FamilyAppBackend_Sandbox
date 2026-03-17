@@ -280,6 +280,85 @@ class CalendarApiTest extends TestCase
             ->assertJsonPath('meal_plan.0.id', $mealPlanA->id);
     }
 
+    public function test_linked_household_can_see_only_shared_events_from_other_household(): void
+    {
+        [$parentA, $householdA] = $this->createHouseholdMember(User::ROLE_PARENT);
+        [$parentB, $householdB] = $this->createHouseholdMember(User::ROLE_PARENT);
+
+        HouseholdSetting::query()->create([
+            'household_id' => $householdA->id,
+            'has_calendar' => true,
+            'calendar_config' => [
+                'shared_view_enabled' => true,
+            ],
+        ]);
+
+        HouseholdSetting::query()->create([
+            'household_id' => $householdB->id,
+            'has_calendar' => true,
+            'calendar_config' => [
+                'shared_view_enabled' => true,
+            ],
+        ]);
+
+        $householdA->forceFill(['linked_household_id' => $householdB->id])->save();
+        $householdB->forceFill(['linked_household_id' => $householdA->id])->save();
+
+        $sharedEventFromA = Event::query()->create([
+            'household_id' => $householdA->id,
+            'created_by_user_id' => $parentA->id,
+            'title' => 'Evenement partage A',
+            'start_at' => '2026-03-06 09:00:00',
+            'end_at' => '2026-03-06 10:00:00',
+            'is_shared_with_other_household' => true,
+        ]);
+
+        Event::query()->create([
+            'household_id' => $householdA->id,
+            'created_by_user_id' => $parentA->id,
+            'title' => 'Evenement prive A',
+            'start_at' => '2026-03-06 11:00:00',
+            'end_at' => '2026-03-06 12:00:00',
+            'is_shared_with_other_household' => false,
+        ]);
+
+        $eventFromB = Event::query()->create([
+            'household_id' => $householdB->id,
+            'created_by_user_id' => $parentB->id,
+            'title' => 'Evenement B',
+            'start_at' => '2026-03-06 14:00:00',
+            'end_at' => '2026-03-06 15:00:00',
+            'is_shared_with_other_household' => false,
+        ]);
+
+        Sanctum::actingAs($parentB);
+
+        $response = $this->getJson('/api/calendar/board?from=2026-03-01&to=2026-03-07');
+        $response->assertOk();
+
+        /** @var array<int, array<string, mixed>> $events */
+        $events = $response->json('events') ?? [];
+
+        $this->assertTrue(
+            collect($events)->contains(fn(array $event): bool => (int) ($event['id'] ?? 0) === (int) $sharedEventFromA->id)
+        );
+        $this->assertFalse(
+            collect($events)->contains(fn(array $event): bool => (string) ($event['title'] ?? '') === 'Evenement prive A')
+        );
+        $this->assertTrue(
+            collect($events)->contains(fn(array $event): bool => (int) ($event['id'] ?? 0) === (int) $eventFromB->id)
+        );
+
+        $sharedEventPayload = collect($events)->first(
+            fn(array $event): bool => (int) ($event['id'] ?? 0) === (int) $sharedEventFromA->id
+        );
+
+        $this->assertIsArray($sharedEventPayload);
+        $this->assertSame((int) $householdA->id, (int) ($sharedEventPayload['source_household_id'] ?? 0));
+        $this->assertFalse((bool) (($sharedEventPayload['permissions']['can_update'] ?? true)));
+        $this->assertFalse((bool) (($sharedEventPayload['permissions']['can_delete'] ?? true)));
+    }
+
     public function test_parent_cannot_update_meal_plan_from_another_household(): void
     {
         [$parentA, $householdA] = $this->createHouseholdMember(User::ROLE_PARENT);

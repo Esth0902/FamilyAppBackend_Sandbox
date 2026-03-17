@@ -1356,6 +1356,62 @@ Authorization: Bearer {{auth_token}}
 # - La notification household_invite passe en status refused + read_at renseigne
 # - Une nouvelle notification de type household_invite_responded est creee pour l'utilisateur invitant
 
+### Foyer connecté - Lire l'état de la liaison inter-foyers
+GET {{baseUrl}}/api/households/connected-household
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+X-Household-Id: {{active_household_id}}
+
+### Foyer connecté - Générer (ou récupérer) un code de liaison
+POST {{baseUrl}}/api/households/connected-household/link-code
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+X-Household-Id: {{active_household_id}}
+
+> {%
+  const code = response.body?.code?.value;
+  if (code) {
+    client.global.set("household_link_code", code);
+    client.log("household_link_code capturé: " + code);
+  }
+%}
+
+### Foyer connecté - Demander la liaison via un code
+POST {{baseUrl}}/api/households/connected-household/connect
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+X-Household-Id: {{active_household_id}}
+
+{
+  "code": "{{household_link_code}}"
+}
+# Attendu:
+# - HTTP 202
+# - request.status = pending
+# - notification type household_link_request envoyée au parent du foyer ciblé
+
+### Notifications - Répondre à une demande de liaison de foyer
+# notification_id: type household_link_request
+POST {{baseUrl}}/api/notifications/{{notification_id}}/household-link-response
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "action": "accept"
+}
+# Attendu:
+# - request.status = accepted|refused
+# - mise à jour linked_household_id des deux foyers en cas d'acceptation
+# - notification type household_link_request_responded envoyée au foyer demandeur
+
+### Foyer connecté - Rompre la liaison existante
+POST {{baseUrl}}/api/households/connected-household/unlink
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+X-Household-Id: {{active_household_id}}
+
 ### Foyer - Demander la suppression du foyer actif
 # Si plusieurs parents: des notifications de validation sont envoyées aux autres parents.
 # Si parent unique: la suppression est planifiée directement dans 24h.

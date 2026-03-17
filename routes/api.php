@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BudgetController;
 use App\Http\Controllers\Api\CalendarController;
+use App\Http\Controllers\Api\HouseholdConnectionController;
 use App\Http\Controllers\Api\HouseholdController;
 use App\Http\Controllers\Api\MealPollController;
 use App\Http\Controllers\Api\NotificationController;
@@ -52,6 +53,10 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'must.change.password'])->gro
     Route::post('/household/members/{member}/temporary-access', [HouseholdController::class, 'refreshMemberTemporaryAccess']);
     Route::post('/households/delete-request', [HouseholdController::class, 'requestDeletion']);
     Route::post('/households/leave', [HouseholdController::class, 'leave']);
+    Route::get('/households/connected-household', [HouseholdConnectionController::class, 'show']);
+    Route::post('/households/connected-household/link-code', [HouseholdConnectionController::class, 'generateCode']);
+    Route::post('/households/connected-household/connect', [HouseholdConnectionController::class, 'connectWithCode']);
+    Route::post('/households/connected-household/unlink', [HouseholdConnectionController::class, 'unlink']);
     Route::get('/dashboard', [HouseholdController::class, 'dashboard']);
 
     // Recipes - IA (custom endpoints)
@@ -99,6 +104,7 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'must.change.password'])->gro
     Route::get('/notifications/pending', [NotificationController::class, 'pending']);
     Route::post('/notifications/{notification}/read', [NotificationController::class, 'read']);
     Route::post('/notifications/{notification}/household-invite-response', [NotificationController::class, 'respondHouseholdInvite']);
+    Route::post('/notifications/{notification}/household-link-response', [NotificationController::class, 'respondHouseholdLinkRequest']);
     Route::post('/notifications/{notification}/task-reassignment-response', [NotificationController::class, 'respondTaskReassignmentInvite']);
     Route::post('/notifications/{notification}/household-deletion-response', [NotificationController::class, 'respondHouseholdDeletion']);
 

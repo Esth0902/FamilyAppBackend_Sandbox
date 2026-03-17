@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\BudgetSetting;
 use App\Models\Household;
+use App\Models\HouseholdLinkRequest;
 use App\Models\TaskInstance;
 use App\Models\User;
 use App\Models\UserNotification;
@@ -17,6 +18,9 @@ use Illuminate\Validation\ValidationException;
 
 class NotificationController extends Controller
 {
+    private const HOUSEHOLD_LINK_REQUEST_TYPE = 'household_link_request';
+    private const HOUSEHOLD_LINK_RESPONSE_TYPE = 'household_link_request_responded';
+
     public function __construct(
         private readonly RealtimePublisher $realtimePublisher,
         private readonly HouseholdDeletionService $householdDeletionService,
@@ -93,11 +97,22 @@ class NotificationController extends Controller
                                     ->orWhere('data->status', 'scheduled');
                             });
                     })
+                    ->orWhere(function ($inviteQuery): void {
+                        $inviteQuery
+                            ->where('type', self::HOUSEHOLD_LINK_REQUEST_TYPE)
+                            ->whereNull('read_at')
+                            ->where(function ($statusQuery): void {
+                                $statusQuery
+                                    ->whereNull('data->status')
+                                    ->orWhere('data->status', 'pending');
+                            });
+                    })
                     ->orWhere(function ($unreadQuery) use ($now): void {
                         $unreadQuery
                             ->whereNull('read_at')
                             ->whereNotIn('type', [
                                 'household_invite',
+                                self::HOUSEHOLD_LINK_REQUEST_TYPE,
                                 'task_reassignment_invite',
                                 HouseholdDeletionService::TYPE_APPROVAL_REQUEST,
                                 HouseholdDeletionService::TYPE_CANCEL_WINDOW,
@@ -121,7 +136,8 @@ class NotificationController extends Controller
                             ->whereNull('household_id')
                             ->orWhere('household_id', $activeHouseholdId);
                     })
-                    ->orWhere('type', 'household_invite');
+                    ->orWhere('type', 'household_invite')
+                    ->orWhere('type', self::HOUSEHOLD_LINK_REQUEST_TYPE);
             });
         }
 
@@ -534,6 +550,220 @@ class NotificationController extends Controller
         });
     }
 
+    public function respondHouseholdLinkRequest(Request $request, UserNotification $notification): JsonResponse
+    {
+        if ((int) $notification->user_id !== (int) $request->user()->id) {
+            return response()->json(['message' => 'Acces refuse.'], 403);
+        }
+
+        $validated = $request->validate([
+            'action' => ['required', 'in:accept,refuse'],
+        ]);
+        $action = (string) $validated['action'];
+
+        if ((string) $notification->type !== self::HOUSEHOLD_LINK_REQUEST_TYPE) {
+            throw ValidationException::withMessages([
+                'notification' => ["Cette notification n'est pas une demande de liaison de foyer."],
+            ]);
+        }
+
+        $user = $request->user();
+        $now = now();
+        $notificationsToPublish = collect();
+        $householdRealtimePayload = null;
+
+        $responsePayload = DB::transaction(function () use (
+            $notification,
+            $user,
+            $action,
+            $now,
+            &$notificationsToPublish,
+            &$householdRealtimePayload
+        ): array {
+            /** @var UserNotification $lockedNotification */
+            $lockedNotification = UserNotification::query()
+                ->whereKey($notification->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $data = is_array($lockedNotification->data) ? $lockedNotification->data : [];
+            $currentStatus = (string) ($data['status'] ?? 'pending');
+            if (in_array($currentStatus, ['accepted', 'refused'], true)) {
+                throw ValidationException::withMessages([
+                    'notification' => ['Cette demande a deja ete traitee.'],
+                ]);
+            }
+
+            $linkRequestId = (int) ($data['link_request_id'] ?? 0);
+            if ($linkRequestId <= 0) {
+                throw ValidationException::withMessages([
+                    'notification' => ['Cette demande est invalide.'],
+                ]);
+            }
+
+            /** @var HouseholdLinkRequest $linkRequest */
+            $linkRequest = HouseholdLinkRequest::query()
+                ->whereKey($linkRequestId)
+                ->with(['fromHousehold:id,name,linked_household_id', 'toHousehold:id,name,linked_household_id'])
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if ((string) $linkRequest->status !== 'pending') {
+                throw ValidationException::withMessages([
+                    'notification' => ['Cette demande n est plus en attente.'],
+                ]);
+            }
+
+            $targetHouseholdId = (int) $linkRequest->to_household_id;
+            $isTargetParent = $user->households()
+                ->where('households.id', $targetHouseholdId)
+                ->wherePivot('role', User::ROLE_PARENT)
+                ->exists();
+            if (!$isTargetParent) {
+                abort(403, 'Seul un parent du foyer cible peut traiter cette demande.');
+            }
+
+            /** @var Household $fromHousehold */
+            $fromHousehold = Household::query()
+                ->whereKey((int) $linkRequest->from_household_id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            /** @var Household $toHousehold */
+            $toHousehold = Household::query()
+                ->whereKey((int) $linkRequest->to_household_id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $isAccepted = $action === 'accept';
+            if ($isAccepted) {
+                $fromLinkedHouseholdId = (int) ($fromHousehold->linked_household_id ?? 0);
+                $toLinkedHouseholdId = (int) ($toHousehold->linked_household_id ?? 0);
+
+                if (
+                    ($fromLinkedHouseholdId > 0 && $fromLinkedHouseholdId !== (int) $toHousehold->id)
+                    || ($toLinkedHouseholdId > 0 && $toLinkedHouseholdId !== (int) $fromHousehold->id)
+                ) {
+                    throw ValidationException::withMessages([
+                        'connection' => ['Un des deux foyers est deja lie a un autre foyer.'],
+                    ]);
+                }
+
+                $fromHousehold->forceFill(['linked_household_id' => (int) $toHousehold->id])->save();
+                $toHousehold->forceFill(['linked_household_id' => (int) $fromHousehold->id])->save();
+            }
+
+            $newStatus = $isAccepted ? 'accepted' : 'refused';
+            $linkRequest->forceFill([
+                'status' => $newStatus,
+                'responded_by_user_id' => (int) $user->id,
+                'responded_at' => $now,
+            ])->save();
+
+            $requestNotifications = UserNotification::query()
+                ->where('type', self::HOUSEHOLD_LINK_REQUEST_TYPE)
+                ->where('data->link_request_id', (int) $linkRequest->id)
+                ->lockForUpdate()
+                ->get();
+
+            foreach ($requestNotifications as $requestNotification) {
+                $requestData = is_array($requestNotification->data) ? $requestNotification->data : [];
+                $requestData['status'] = $newStatus;
+                $requestData['responded_at'] = $now->toIso8601String();
+                $requestData['responded_action'] = $action;
+
+                $requestNotification->forceFill([
+                    'data' => $requestData,
+                    'read_at' => $now,
+                ])->save();
+            }
+
+            $requesterParentIds = $this->resolveParentUserIds((int) $fromHousehold->id);
+            foreach ($requesterParentIds as $requesterParentId) {
+                $notificationToRequester = $this->createUserNotification(
+                    userId: $requesterParentId,
+                    householdId: (int) $fromHousehold->id,
+                    type: self::HOUSEHOLD_LINK_RESPONSE_TYPE,
+                    title: $isAccepted ? 'Liaison de foyer acceptee' : 'Liaison de foyer refusee',
+                    body: $isAccepted
+                        ? sprintf(
+                            'Le foyer %s a accepte votre demande de liaison.',
+                            (string) $toHousehold->name
+                        )
+                        : sprintf(
+                            'Le foyer %s a refuse votre demande de liaison.',
+                            (string) $toHousehold->name
+                        ),
+                    data: [
+                        'status' => $newStatus,
+                        'link_request_id' => (int) $linkRequest->id,
+                        'requester_household_id' => (int) $fromHousehold->id,
+                        'requester_household_name' => (string) $fromHousehold->name,
+                        'target_household_id' => (int) $toHousehold->id,
+                        'target_household_name' => (string) $toHousehold->name,
+                        'responded_by_user_id' => (int) $user->id,
+                        'responded_by_user_name' => (string) ($user->name ?? 'Un parent'),
+                    ],
+                );
+                $notificationsToPublish->push($notificationToRequester);
+            }
+
+            $householdRealtimePayload = [
+                'from_household_id' => (int) $fromHousehold->id,
+                'to_household_id' => (int) $toHousehold->id,
+                'status' => $newStatus,
+            ];
+
+            return [
+                'message' => $isAccepted ? 'Demande acceptee.' : 'Demande refusee.',
+                'request' => [
+                    'id' => (int) $linkRequest->id,
+                    'status' => $newStatus,
+                    'from_household' => [
+                        'id' => (int) $fromHousehold->id,
+                        'name' => (string) $fromHousehold->name,
+                    ],
+                    'to_household' => [
+                        'id' => (int) $toHousehold->id,
+                        'name' => (string) $toHousehold->name,
+                    ],
+                ],
+            ];
+        });
+
+        DB::afterCommit(function () use ($notificationsToPublish, $householdRealtimePayload): void {
+            foreach ($notificationsToPublish as $notificationToPublish) {
+                if ($notificationToPublish instanceof UserNotification) {
+                    $this->publishNotificationCreated($notificationToPublish);
+                }
+            }
+
+            if (is_array($householdRealtimePayload)) {
+                $fromHouseholdId = (int) ($householdRealtimePayload['from_household_id'] ?? 0);
+                $toHouseholdId = (int) ($householdRealtimePayload['to_household_id'] ?? 0);
+
+                if ($fromHouseholdId > 0) {
+                    $this->realtimePublisher->publishHousehold(
+                        householdId: $fromHouseholdId,
+                        module: 'household',
+                        type: 'connection_updated',
+                        payload: $householdRealtimePayload,
+                    );
+                }
+                if ($toHouseholdId > 0) {
+                    $this->realtimePublisher->publishHousehold(
+                        householdId: $toHouseholdId,
+                        module: 'household',
+                        type: 'connection_updated',
+                        payload: $householdRealtimePayload,
+                    );
+                }
+            }
+        });
+
+        return response()->json($responsePayload);
+    }
+
     public function respondHouseholdDeletion(Request $request, UserNotification $notification): JsonResponse
     {
         if ((int) $notification->user_id !== (int) $request->user()->id) {
@@ -606,6 +836,21 @@ class NotificationController extends Controller
             'body' => $body,
             'data' => $data + ['household_id' => $householdId],
         ]);
+    }
+
+    /**
+     * @return array<int>
+     */
+    private function resolveParentUserIds(int $householdId): array
+    {
+        return DB::table('household_user')
+            ->where('household_id', $householdId)
+            ->where('role', User::ROLE_PARENT)
+            ->pluck('user_id')
+            ->map(static fn($userId): int => (int) $userId)
+            ->filter(static fn(int $userId): bool => $userId > 0)
+            ->values()
+            ->all();
     }
 
     private function publishNotificationCreated(UserNotification $notification): void

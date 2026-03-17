@@ -36,12 +36,26 @@ class CalendarController extends Controller
         [$household, $role] = $this->resolveHouseholdWithRole($request);
         [$fromDate, $toDate] = $this->resolveDateRange($request, self::DEFAULT_RANGE_DAYS, self::MAX_RANGE_DAYS);
         $currentUserId = (int) $request->user()->id;
+        $currentHouseholdId = (int) $household->id;
 
         $calendarEnabled = $this->isCalendarModuleEnabled($household);
         $calendarSettings = $this->resolveCalendarSettings($household);
+        $linkedHouseholdId = $this->resolveConnectedHouseholdId($household);
+        $hasLinkedHousehold = $linkedHouseholdId !== null;
+        $sharedViewEnabled = (bool) ($calendarSettings['shared_view_enabled'] ?? true);
 
         $events = Event::query()
-            ->where('household_id', $household->id)
+            ->where(function ($query) use ($currentHouseholdId, $linkedHouseholdId, $sharedViewEnabled): void {
+                $query->where('household_id', $currentHouseholdId);
+
+                if ($linkedHouseholdId !== null && $sharedViewEnabled) {
+                    $query->orWhere(function ($linkedQuery) use ($linkedHouseholdId): void {
+                        $linkedQuery
+                            ->where('household_id', $linkedHouseholdId)
+                            ->where('is_shared_with_other_household', true);
+                    });
+                }
+            })
             ->where(function ($query) use ($fromDate, $toDate) {
                 $query
                     ->whereBetween('start_at', [$fromDate->copy()->startOfDay(), $toDate->copy()->endOfDay()])
@@ -73,17 +87,20 @@ class CalendarController extends Controller
                 'to' => $toDate->toDateString(),
             ],
             'settings' => [
-                'shared_view_enabled' => (bool) ($calendarSettings['shared_view_enabled'] ?? true),
+                'shared_view_enabled' => $sharedViewEnabled,
                 'absence_tracking_enabled' => (bool) ($calendarSettings['absence_tracking_enabled'] ?? true),
             ],
             'permissions' => [
                 'can_create_events' => $calendarEnabled,
                 'can_share_with_other_household' => $calendarEnabled
                     && $role === User::ROLE_PARENT
-                    && (bool) ($calendarSettings['shared_view_enabled'] ?? true),
+                    && $sharedViewEnabled
+                    && $hasLinkedHousehold,
                 'can_manage_meal_plan' => $role === User::ROLE_PARENT,
             ],
-            'events' => $events->map(fn(Event $event): array => $this->toEventPayload($event, $currentUserId, $role))->values(),
+            'events' => $events->map(
+                fn(Event $event): array => $this->toEventPayload($event, $currentUserId, $role, $currentHouseholdId)
+            )->values(),
             'meal_plan' => $mealPlans->map(fn(MealPlan $mealPlan): array => $this->toMealPlanPayload($mealPlan))->values(),
         ]);
     }
@@ -110,12 +127,19 @@ class CalendarController extends Controller
             ]);
         }
 
+        if ($shouldShare && !$this->hasConnectedHousehold($household)) {
+            throw ValidationException::withMessages([
+                'is_shared_with_other_household' => ['Aucun foyer connecte n est disponible pour le partage.'],
+            ]);
+        }
+
         if ($shouldShare && $role !== User::ROLE_PARENT) {
             abort(403, 'Seul un parent peut partager un evenement avec un autre foyer.');
         }
 
         $startAt = Carbon::parse((string) $validated['start_at']);
         $endAt = Carbon::parse((string) $validated['end_at']);
+        $linkedHouseholdId = $shouldShare ? $this->resolveConnectedHouseholdId($household) : null;
 
         $event = Event::query()->create([
             'household_id' => $household->id,
@@ -138,10 +162,23 @@ class CalendarController extends Controller
                 'is_shared_with_other_household' => (bool) $event->is_shared_with_other_household,
             ],
         );
+        if ($shouldShare && $linkedHouseholdId !== null) {
+            $this->publishCalendarRealtime(
+                householdId: $linkedHouseholdId,
+                type: 'event.created',
+                payload: [
+                    'event_id' => (int) $event->id,
+                    'title' => (string) $event->title,
+                    'start_at' => optional($event->start_at)->toIso8601String(),
+                    'end_at' => optional($event->end_at)->toIso8601String(),
+                    'is_shared_with_other_household' => (bool) $event->is_shared_with_other_household,
+                ],
+            );
+        }
 
         return response()->json([
             'message' => 'Evenement cree.',
-            'event' => $this->toEventPayload($event, (int) $request->user()->id, $role),
+            'event' => $this->toEventPayload($event, (int) $request->user()->id, $role, (int) $household->id),
         ], 201);
     }
 
@@ -169,9 +206,18 @@ class CalendarController extends Controller
             ]);
         }
 
+        if ($shouldShare && !$this->hasConnectedHousehold($household)) {
+            throw ValidationException::withMessages([
+                'is_shared_with_other_household' => ['Aucun foyer connecte n est disponible pour le partage.'],
+            ]);
+        }
+
         if ($shouldShare && $role !== User::ROLE_PARENT) {
             abort(403, 'Seul un parent peut partager un evenement avec un autre foyer.');
         }
+
+        $wasSharedWithOtherHousehold = (bool) $event->is_shared_with_other_household;
+        $linkedHouseholdId = $this->resolveConnectedHouseholdId($household);
 
         $event->update([
             'title' => trim((string) $validated['title']),
@@ -194,10 +240,42 @@ class CalendarController extends Controller
                 'is_shared_with_other_household' => (bool) $event->is_shared_with_other_household,
             ],
         );
+        if ($linkedHouseholdId !== null) {
+            $linkedRealtimePayload = [
+                'event_id' => (int) $event->id,
+                'title' => (string) $event->title,
+                'start_at' => optional($event->start_at)->toIso8601String(),
+                'end_at' => optional($event->end_at)->toIso8601String(),
+                'is_shared_with_other_household' => (bool) $event->is_shared_with_other_household,
+            ];
+
+            if (!$wasSharedWithOtherHousehold && $shouldShare) {
+                $this->publishCalendarRealtime(
+                    householdId: $linkedHouseholdId,
+                    type: 'event.created',
+                    payload: $linkedRealtimePayload,
+                );
+            } elseif ($wasSharedWithOtherHousehold && !$shouldShare) {
+                $this->publishCalendarRealtime(
+                    householdId: $linkedHouseholdId,
+                    type: 'event.deleted',
+                    payload: [
+                        'event_id' => (int) $event->id,
+                        'title' => (string) $event->title,
+                    ],
+                );
+            } elseif ($wasSharedWithOtherHousehold && $shouldShare) {
+                $this->publishCalendarRealtime(
+                    householdId: $linkedHouseholdId,
+                    type: 'event.updated',
+                    payload: $linkedRealtimePayload,
+                );
+            }
+        }
 
         return response()->json([
             'message' => 'Evenement mis a jour.',
-            'event' => $this->toEventPayload($event, (int) $request->user()->id, $role),
+            'event' => $this->toEventPayload($event, (int) $request->user()->id, $role, (int) $household->id),
         ]);
     }
 
@@ -210,6 +288,8 @@ class CalendarController extends Controller
 
         $eventId = (int) $event->id;
         $eventTitle = (string) $event->title;
+        $wasSharedWithOtherHousehold = (bool) $event->is_shared_with_other_household;
+        $linkedHouseholdId = $wasSharedWithOtherHousehold ? $this->resolveConnectedHouseholdId($household) : null;
         $event->delete();
 
         $this->publishCalendarRealtime(
@@ -220,6 +300,16 @@ class CalendarController extends Controller
                 'title' => $eventTitle,
             ],
         );
+        if ($wasSharedWithOtherHousehold && $linkedHouseholdId !== null) {
+            $this->publishCalendarRealtime(
+                householdId: $linkedHouseholdId,
+                type: 'event.deleted',
+                payload: [
+                    'event_id' => $eventId,
+                    'title' => $eventTitle,
+                ],
+            );
+        }
 
         return response()->json([
             'message' => 'Evenement supprime.',
@@ -424,6 +514,32 @@ class CalendarController extends Controller
         }
     }
 
+    private function hasConnectedHousehold(Household $household): bool
+    {
+        return $this->resolveConnectedHouseholdId($household) !== null;
+    }
+
+    private function resolveConnectedHouseholdId(Household $household): ?int
+    {
+        $linkedHouseholdId = (int) ($household->linked_household_id ?? 0);
+        if ($linkedHouseholdId <= 0) {
+            return null;
+        }
+
+        $linkedHousehold = Household::query()
+            ->select(['id', 'linked_household_id'])
+            ->find($linkedHouseholdId);
+
+        if (
+            !$linkedHousehold instanceof Household
+            || (int) ($linkedHousehold->linked_household_id ?? 0) !== (int) $household->id
+        ) {
+            return null;
+        }
+
+        return (int) $linkedHousehold->id;
+    }
+
     private function resolveCalendarSettings(Household $household): array
     {
         $settings = HouseholdSetting::query()
@@ -458,9 +574,11 @@ class CalendarController extends Controller
         }
     }
 
-    private function toEventPayload(Event $event, int $currentUserId, string $role): array
+    private function toEventPayload(Event $event, int $currentUserId, string $role, int $currentHouseholdId): array
     {
-        $canManage = $role === User::ROLE_PARENT || (int) $event->created_by_user_id === $currentUserId;
+        $belongsToCurrentHousehold = (int) $event->household_id === $currentHouseholdId;
+        $canManage = $belongsToCurrentHousehold
+            && ($role === User::ROLE_PARENT || (int) $event->created_by_user_id === $currentUserId);
 
         return [
             'id' => (int) $event->id,
@@ -469,6 +587,7 @@ class CalendarController extends Controller
             'start_at' => optional($event->start_at)->toIso8601String(),
             'end_at' => optional($event->end_at)->toIso8601String(),
             'is_shared_with_other_household' => (bool) $event->is_shared_with_other_household,
+            'source_household_id' => (int) $event->household_id,
             'created_by' => [
                 'id' => $event->creator?->id ? (int) $event->creator->id : null,
                 'name' => $event->creator?->name,
