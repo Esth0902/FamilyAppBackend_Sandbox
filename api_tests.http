@@ -21,7 +21,7 @@ Accept: application/json
 > {%
     if (response.status === 200 || response.status === 201) {
         client.global.set("auth_token", response.body.token);
-        client.log("Token d'inscription capturÃ© : " + response.body.token);
+        client.log("Token d'inscription capturé : " + response.body.token);
     } else {
         client.log("Register status: " + response.status);
     }
@@ -127,39 +127,39 @@ Authorization: Bearer {{auth_token}}
 > {%
     const hid = response.body.id ?? response.body.data?.id;
     client.global.set("household_id", hid);
-    client.log("household_id capturÃ© : " + hid);
+    client.log("household_id capturé : " + hid);
 %}
 
-### CrÃ©er un foyer supplÃ©mentaire (multi-foyer)
-# L'utilisateur connectÃ© devient parent du nouveau foyer.
+### Créer un foyer supplémentaire (multi-foyer)
+# L'utilisateur connecté devient parent du nouveau foyer.
 POST {{baseUrl}}/api/households
 Content-Type: {{contentType}}
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
 {
-  "household_name": "DeuxiÃ¨me foyer test"
+  "household_name": "Deuxième foyer test"
 }
-### 4) Demander des idÃ©es Ã  l'IA (intent=ideas)
+### 4) Demander des idées à  l'IA (intent=ideas)
 POST {{baseUrl}}/api/recipes/suggest
 Content-Type: {{contentType}}
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
 {
-  "preferences": "VÃ©gÃ©tarien, cuisine italienne",
+  "preferences": "Végétarien, cuisine italienne",
   "count": 3,
   "intent": "ideas"
 }
 
-### 5) Demander une recette spÃ©cifique Ã  l'IA (intent=specific)
+### 5) Demander une recette spécifique à  l'IA (intent=specific)
 POST {{baseUrl}}/api/recipes/suggest
 Content-Type: {{contentType}}
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
 {
-  "preferences": "Lasagnes aux lÃ©gumes",
+  "preferences": "Lasagnes aux légumes",
   "intent": "specific"
 }
 
@@ -170,13 +170,13 @@ Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
 {
-  "title": "Lasagnes aux lÃ©gumes"
+  "title": "Lasagnes aux légumes"
 }
 
 ### 7) AI Store (exemple valide AVEC type + category)
 # IMPORTANT:
-# - type doit Ãªtre: petit-dÃ©jeuner, entrÃ©e, plat principal, dessert, collation, boisson, autre
-# - category doit Ãªtre: fruits et lÃ©gumes, boucherie, poissonnerie, crÃ¨merie, Ã©picerie salÃ©e, Ã©picerie sucrÃ©e, boissons, surgelÃ©s, entretien et hygiÃ¨ne, autre
+# - type doit être: petit-déjeuner, entrée, plat principal, dessert, collation, boisson, autre
+# - category doit être: fruits et légumes, boucherie, poissonnerie, crémerie, épicerie salée, épicerie sucrée, boissons, surgelés, entretien et hygiène, autre
 POST {{baseUrl}}/api/recipes/ai-store
 Content-Type: {{contentType}}
 Accept: {{contentType}}
@@ -184,39 +184,39 @@ Authorization: Bearer {{auth_token}}
 
 {
   "household_id": 3,
-  "title": "Lasagnes aux lÃ©gumes",
+  "title": "Lasagnes aux légumes",
   "type": "plat principal",
-  "description": "Un plat italien classique revisitÃ© avec des lÃ©gumes pour une version vÃ©gÃ©tarienne dÃ©licieuse.",
-  "instructions": "Ã‰tape 1 : PrÃ©chauffez le four Ã  180Â°C. Ã‰tape 2 : ...",
+  "description": "Un plat italien classique revisité avec des légumes pour une version végétarienne délicieuse.",
+  "instructions": "étape 1 : Préchauffez le four Ã  180 °C. étape 2 : ...",
   "ingredients": [
-    { "name": "pÃ¢tes Ã  lasagnes", "quantity": 250, "unit": "g", "category": "Ã©picerie salÃ©e" },
-    { "name": "oignon", "quantity": 1, "unit": "unitÃ©", "category": "fruits et lÃ©gumes" },
-    { "name": "poivron", "quantity": 1, "unit": "unitÃ©", "category": "fruits et lÃ©gumes" },
-    { "name": "courgette", "quantity": 1, "unit": "unitÃ©", "category": "fruits et lÃ©gumes" },
-    { "name": "tomates concassÃ©es", "quantity": 400, "unit": "g", "category": "Ã©picerie salÃ©e" },
-    { "name": "ricotta", "quantity": 200, "unit": "g", "category": "crÃ¨merie" },
-    { "name": "parmesan rÃ¢pÃ©", "quantity": 40, "unit": "g", "category": "crÃ¨merie" },
-    { "name": "sel", "quantity": 0, "unit": "au goÃ»t", "category": "autre" }
+    { "name": "pâtes à lasagnes", "quantity": 250, "unit": "g", "category": "épicerie salée" },
+    { "name": "oignon", "quantity": 1, "unit": "unité", "category": "fruits et légumes" },
+    { "name": "poivron", "quantity": 1, "unit": "unité", "category": "fruits et légumes" },
+    { "name": "courgette", "quantity": 1, "unit": "unité", "category": "fruits et légumes" },
+    { "name": "tomates concassées", "quantity": 400, "unit": "g", "category": "épicerie salée" },
+    { "name": "ricotta", "quantity": 200, "unit": "g", "category": "crémerie" },
+    { "name": "parmesan râpé", "quantity": 40, "unit": "g", "category": "crémerie" },
+    { "name": "sel", "quantity": 0, "unit": "au goût", "category": "autre" }
   ]
 }
 
 > {%
     const rid = response.body.id ?? response.body.data?.id;
     client.global.set("recipe_id", rid);
-    client.log("recipe_id capturÃ© : " + rid);
+    client.log("recipe_id capturé : " + rid);
 %}
 
-### 8) VÃ©rifier la liste des recettes (doit contenir la recette AI)
+### 8) Vérifier la liste des recettes (doit contenir la recette AI)
 GET {{baseUrl}}/api/recipes
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
-### 9) RÃ©cupÃ©rer la recette crÃ©Ã©e
+### 9) Récupérer la recette créée
 GET {{baseUrl}}/api/recipes/{{recipe_id}}
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
-### 9b) RÃ©cupÃ©rer la recette avec portions ciblÃ©es (scaling)
+### 9b) Récupérer la recette avec portions ciblées (scaling)
 GET {{baseUrl}}/api/recipes/{{recipe_id}}?servings=4
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
@@ -234,7 +234,7 @@ Authorization: Bearer {{auth_token}}
   "description": "test",
   "instructions": "test",
   "ingredients": [
-    { "name": "oignon", "quantity": 1, "unit": "unitÃ©", "category": "fruits et lÃ©gumes" }
+    { "name": "oignon", "quantity": 1, "unit": "unité", "category": "fruits et légumes" }
   ]
 }
 
@@ -246,17 +246,17 @@ Authorization: Bearer {{auth_token}}
 
 {
   "household_id": 3,
-  "title": "Test mauvaise catÃ©gorie",
+  "title": "Test mauvaise catégorie",
   "type": "plat principal",
   "description": "test",
   "instructions": "test",
   "ingredients": [
-    { "name": "oignon", "quantity": 1, "unit": "unitÃ©", "category": "frais" }
+    { "name": "oignon", "quantity": 1, "unit": "unité", "category": "frais" }
   ]
 }
 
-### 12) Test pivot unique: doublon ingrÃ©dient (ne doit PAS casser si tu utilises sync)
-# Si ton controller est encore en attach(), Ã§a risque 500.
+### 12) Test pivot unique: doublon ingrédient (ne doit PAS casser si tu utilises sync)
+# Si ton controller est encore en attach(), risque 500.
 POST {{baseUrl}}/api/recipes/ai-store
 Content-Type: {{contentType}}
 Accept: {{contentType}}
@@ -269,8 +269,8 @@ Authorization: Bearer {{auth_token}}
   "description": "test",
   "instructions": "test",
   "ingredients": [
-    { "name": "oignon", "quantity": 1, "unit": "unitÃ©", "category": "fruits et lÃ©gumes" },
-    { "name": "oignon", "quantity": 2, "unit": "unitÃ©", "category": "fruits et lÃ©gumes" }
+    { "name": "oignon", "quantity": 1, "unit": "unité", "category": "fruits et légumes" },
+    { "name": "oignon", "quantity": 2, "unit": "unité", "category": "fruits et légumes" }
   ]
 }
 
@@ -282,7 +282,7 @@ Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
 {
-  "title": "Lasagnes aux lÃ©gumes (update)",
+  "title": "Lasagnes aux légumes (update)",
   "type": "plat principal",
   "base_servings": 4,
   "description": "update",
@@ -595,6 +595,16 @@ X-Household-Id: {{active_household_id}}
 # - notifications[].sent_at (ISO 8601|null)
 # - notifications[].read_at (ISO 8601|null)
 # - notifications[].data.status (pending|accepted|refused) pour les demandes actionnables
+# - notifications[].data.household_name (string) pour les notifications de tÃ¢ches multi-foyers
+
+### Notifications - Recuperer celles en attente sur tous les foyers du user
+GET {{baseUrl}}/api/notifications/pending?all_households=1
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+# RÃ©ponse attendue:
+# - mÃªme format que /notifications/pending
+# - inclut les notifications des autres foyers oÃ¹ l'utilisateur est membre
 
 ### Notifications - Marquer lue
 POST {{baseUrl}}/api/notifications/{{notification_id}}/read
@@ -1101,7 +1111,7 @@ Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
 {
-  "status": "approuvÃ©",
+  "status": "approuvé",
   "amount": 6.5,
   "comment": "Montant ajuste apres verification"
 }
@@ -1227,4 +1237,3 @@ Authorization: Bearer {{auth_token}}
 # Attendu:
 # - La notification household_invite passe en status refused + read_at renseigne
 # - Une nouvelle notification de type household_invite_responded est creee pour l'utilisateur invitant
-

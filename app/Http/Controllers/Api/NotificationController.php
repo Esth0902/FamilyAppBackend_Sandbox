@@ -25,9 +25,13 @@ class NotificationController extends Controller
     {
         $userId = (int)$request->user()->id;
         $now = now();
+        $includeAllHouseholds = filter_var(
+            $request->query('all_households', false),
+            FILTER_VALIDATE_BOOLEAN
+        );
         $activeHouseholdId = (int) $request->header('X-Household-Id', 0);
         $canFilterByHousehold = false;
-        if ($activeHouseholdId > 0) {
+        if (!$includeAllHouseholds && $activeHouseholdId > 0) {
             $canFilterByHousehold = $request->user()
                 ->households()
                 ->where('households.id', $activeHouseholdId)
@@ -417,16 +421,18 @@ class NotificationController extends Controller
             $requesterNotification = null;
             if ($requesterUserId > 0 && $requesterUserId !== (int) ($user->id ?? 0)) {
                 $taskName = (string) data_get($data, 'task_name', 'cette tâche');
+                $householdName = (string) data_get($data, 'household_name', 'ce foyer');
                 $requesterNotification = $this->createUserNotification(
                     userId: $requesterUserId,
                     householdId: $householdId,
                     type: 'task_reassignment_invite_responded',
                     title: $isAccepted ? 'Reprise de tâche acceptée' : 'Reprise de tâche refusée',
                     body: $isAccepted
-                        ? sprintf('%s a accepté de reprendre %s.', (string) ($user->name ?? 'Un membre'), $taskName)
-                        : sprintf('%s a refusé de reprendre %s.', (string) ($user->name ?? 'Un membre'), $taskName),
+                        ? sprintf('%s a accepté de reprendre %s dans le foyer %s.', (string) ($user->name ?? 'Un membre'), $taskName, $householdName)
+                        : sprintf('%s a refusé de reprendre %s dans le foyer %s.', (string) ($user->name ?? 'Un membre'), $taskName, $householdName),
                     data: [
                         'household_id' => $householdId,
+                        'household_name' => $householdName,
                         'task_instance_id' => $instanceId,
                         'task_name' => $taskName,
                         'status' => (string) ($data['status'] ?? 'pending'),
@@ -446,6 +452,8 @@ class NotificationController extends Controller
                     type: 'task_reassignment_invite_responded',
                     payload: [
                         'notification_id' => (int) $locked->id,
+                        'household_id' => (int) data_get($data, 'household_id', 0),
+                        'household_name' => (string) data_get($data, 'household_name', 'ce foyer'),
                         'task_instance_id' => (int) data_get($data, 'task_instance_id'),
                         'task_name' => (string) data_get($data, 'task_name', 'Tache'),
                         'status' => (string) data_get($data, 'status', 'pending'),

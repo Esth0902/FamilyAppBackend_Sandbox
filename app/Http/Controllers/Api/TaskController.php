@@ -568,13 +568,15 @@ class TaskController extends Controller
         }
 
         $taskTitle = (string) ($instance->template?->name ?? 'Tâche');
+        $householdName = (string) ($household->name ?? 'ce foyer');
         $invitationNotification = DB::transaction(function () use (
             $household,
             $instance,
             $currentUser,
             $currentUserId,
             $invitedUserId,
-            $taskTitle
+            $taskTitle,
+            $householdName
         ): UserNotification {
             $alreadyPending = UserNotification::query()
                 ->where('user_id', $invitedUserId)
@@ -596,13 +598,15 @@ class TaskController extends Controller
                 'type' => 'task_reassignment_invite',
                 'title' => 'Demande de reprise de tâche',
                 'body' => sprintf(
-                    '%s vous demande de reprendre la tâche %s prévue le %s.',
+                    '%s vous demande de reprendre la tâche %s prévue le %s (foyer : %s).',
                     (string) ($currentUser->name ?? 'Un membre'),
                     $taskTitle,
-                    optional($instance->due_date)->toDateString() ?? ''
+                    optional($instance->due_date)->toDateString() ?? '',
+                    $householdName
                 ),
                 'data' => [
                     'household_id' => (int) $household->id,
+                    'household_name' => $householdName,
                     'task_instance_id' => (int) $instance->id,
                     'task_template_id' => (int) $instance->task_template_id,
                     'task_name' => $taskTitle,
@@ -623,6 +627,7 @@ class TaskController extends Controller
                 payload: [
                     'notification_id' => (int) $invitationNotification->id,
                     'household_id' => (int) $household->id,
+                    'household_name' => (string) data_get($invitationNotification->data, 'household_name', 'ce foyer'),
                     'task_instance_id' => (int) data_get($invitationNotification->data, 'task_instance_id'),
                     'task_name' => (string) data_get($invitationNotification->data, 'task_name', 'Tâche'),
                     'requester_user_id' => (int) data_get($invitationNotification->data, 'requester_user_id'),
@@ -810,8 +815,10 @@ class TaskController extends Controller
         ]);
 
         $taskTitle = (string) ($instance->template?->name ?? 'Tâche');
+        $householdName = (string) ($household->name ?? 'ce foyer');
         $notificationPayload = [
             'household_id' => (int) $household->id,
+            'household_name' => $householdName,
             'task_instance_id' => (int) $instance->id,
             'task_template_id' => (int) $instance->task_template_id,
             'task_name' => $taskTitle,
@@ -825,7 +832,7 @@ class TaskController extends Controller
             householdId: (int) $household->id,
             type: 'task_assigned',
             title: 'Nouvelle tâche assignée',
-            body: sprintf('La tâche "%s" vous a été assignée.', $taskTitle),
+            body: sprintf('La tâche "%s" vous a été assignée dans le foyer %s.', $taskTitle, $householdName),
             data: $notificationPayload,
         );
 
@@ -980,8 +987,10 @@ class TaskController extends Controller
         }
 
         $taskTitle = (string) ($instance->template?->name ?? 'Tâche');
+        $householdName = (string) ($household->name ?? 'ce foyer');
         $sharedPayload = [
             'household_id' => (int) $household->id,
+            'household_name' => $householdName,
             'task_instance_id' => (int) $instance->id,
             'task_template_id' => (int) $instance->task_template_id,
             'task_name' => $taskTitle,
@@ -996,7 +1005,7 @@ class TaskController extends Controller
                 householdId: (int) $household->id,
                 type: 'task_done_validation_needed',
                 title: 'Validation de tâche requise',
-                body: sprintf('La tâche "%s" a été marquée réalisée.', $taskTitle),
+                body: sprintf('La tâche "%s" a été marquée réalisée dans le foyer %s.', $taskTitle, $householdName),
                 data: $sharedPayload,
             );
         }
@@ -1007,7 +1016,7 @@ class TaskController extends Controller
                 householdId: (int) $household->id,
                 type: 'task_validated',
                 title: 'Tâche validée',
-                body: sprintf('La tâche "%s" a été validée par un parent.', $taskTitle),
+                body: sprintf('La tâche "%s" a été validée par un parent dans le foyer %s.', $taskTitle, $householdName),
                 data: $sharedPayload,
             );
         }
@@ -1018,7 +1027,7 @@ class TaskController extends Controller
                 householdId: (int) $household->id,
                 type: 'task_cancelled',
                 title: 'Tâche annulée',
-                body: sprintf('La tâche "%s" a été annulée.', $taskTitle),
+                body: sprintf('La tâche "%s" a été annulée dans le foyer %s.', $taskTitle, $householdName),
                 data: $sharedPayload,
             );
         }
@@ -1029,7 +1038,7 @@ class TaskController extends Controller
                 householdId: (int) $household->id,
                 type: 'task_reassigned',
                 title: 'Réattribution de tâche',
-                body: sprintf('La tâche "%s" vous a été réattribuée.', $taskTitle),
+                body: sprintf('La tâche "%s" vous a été réattribuée dans le foyer %s.', $taskTitle, $householdName),
                 data: $sharedPayload + [
                     'previous_assignee_ids' => $previousAssigneeIds,
                     'assignee_ids' => $currentAssigneeIds,
@@ -1087,8 +1096,10 @@ class TaskController extends Controller
         }
 
         $taskTitle = (string) ($instance->template?->name ?? 'Tâche');
+        $householdName = (string) ($household->name ?? 'ce foyer');
         $payload = [
             'household_id' => (int) $household->id,
+            'household_name' => $householdName,
             'task_instance_id' => (int) $instance->id,
             'task_template_id' => (int) $instance->task_template_id,
             'task_name' => $taskTitle,
@@ -1102,7 +1113,7 @@ class TaskController extends Controller
             householdId: (int) $household->id,
             type: 'task_validated',
             title: 'Tâche validée',
-            body: sprintf('La tâche "%s" a été validée.', $taskTitle),
+            body: sprintf('La tâche "%s" a été validée dans le foyer %s.', $taskTitle, $householdName),
             data: $payload,
         );
 
