@@ -264,6 +264,33 @@ class TaskController extends Controller
             'fixed_user_id' => $fixedUserId ? (int) $fixedUserId : null,
         ])->load('fixedUser:id,name');
 
+        $taskTitle = (string) $template->name;
+        $householdName = (string) ($household->name ?? 'ce foyer');
+        $routineAssigneeIds = $isRotation
+            ? $this->normalizeMemberIdsInput($rotationUserIds)
+            : $this->normalizeMemberIdsInput($assigneeUserIds);
+        if (count($routineAssigneeIds) === 0 && $fixedUserId !== null && (int) $fixedUserId > 0) {
+            $routineAssigneeIds = [(int) $fixedUserId];
+        }
+
+        $this->notifyUsers(
+            userIds: array_values(array_filter($routineAssigneeIds, static fn(int $id): bool => $id !== (int) $request->user()->id)),
+            householdId: (int) $household->id,
+            type: 'task_routine_assigned',
+            title: 'Nouvelle routine attribuée',
+            body: sprintf('La routine "%s" vous a été attribuée dans le foyer %s.', $taskTitle, $householdName),
+            data: [
+                'household_id' => (int) $household->id,
+                'household_name' => $householdName,
+                'task_template_id' => (int) $template->id,
+                'task_name' => $taskTitle,
+                'recurrence' => (string) $template->recurrence,
+                'assigned_by_user_id' => (int) $request->user()->id,
+                'assigned_by_name' => (string) ($request->user()->name ?? 'Un membre'),
+                'assignee_ids' => $routineAssigneeIds,
+            ],
+        );
+
         $this->publishTasksRealtime(
             householdId: (int) $household->id,
             type: 'template.created',

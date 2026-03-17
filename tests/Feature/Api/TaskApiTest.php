@@ -459,6 +459,59 @@ class TaskApiTest extends TestCase
             ->assertJsonPath('template.assignee_user_ids.1', $childB->id);
     }
 
+    public function test_parent_creating_routine_sends_notification_to_assignees(): void
+    {
+        [$parent, $childA, $childB] = $this->createHouseholdWithMembers(2);
+        $household = $parent->households()->firstOrFail();
+
+        HouseholdSetting::query()->create([
+            'household_id' => $household->id,
+            'has_tasks' => true,
+            'has_calendar' => true,
+        ]);
+
+        Sanctum::actingAs($parent);
+
+        $response = $this->postJson('/api/tasks/templates', [
+            'name' => 'Arroser les plantes',
+            'description' => 'Chaque lundi',
+            'recurrence' => 'weekly',
+            'start_date' => '2026-03-09',
+            'recurrence_days' => [1],
+            'is_rotation' => false,
+            'assignee_user_ids' => [$childA->id, $childB->id],
+        ])->assertCreated();
+
+        $templateId = (int) ($response->json('template.id') ?? 0);
+        $this->assertGreaterThan(0, $templateId);
+
+        /** @var UserNotification|null $childANotification */
+        $childANotification = UserNotification::query()
+            ->where('user_id', $childA->id)
+            ->where('household_id', $household->id)
+            ->where('type', 'task_routine_assigned')
+            ->latest('id')
+            ->first();
+        $this->assertNotNull($childANotification);
+        $this->assertSame($templateId, (int) data_get($childANotification?->data, 'task_template_id'));
+
+        /** @var UserNotification|null $childBNotification */
+        $childBNotification = UserNotification::query()
+            ->where('user_id', $childB->id)
+            ->where('household_id', $household->id)
+            ->where('type', 'task_routine_assigned')
+            ->latest('id')
+            ->first();
+        $this->assertNotNull($childBNotification);
+        $this->assertSame($templateId, (int) data_get($childBNotification?->data, 'task_template_id'));
+
+        $this->assertDatabaseMissing('user_notifications', [
+            'user_id' => $parent->id,
+            'household_id' => $household->id,
+            'type' => 'task_routine_assigned',
+        ]);
+    }
+
     public function test_daily_and_weekly_recurrence_are_auto_normalized_based_on_selected_days(): void
     {
         [$parent, $child] = $this->createHouseholdWithMembers();

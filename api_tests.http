@@ -726,6 +726,7 @@ Authorization: Bearer {{auth_token}}
 ### Tasks - Creer un template (parent)
 # NOTE:
 # - Pour une routine mensuelle, envoyer aussi start_date (YYYY-MM-DD)
+# - Notifications attendues: type "task_routine_assigned" pour les membres assignes (hors createur)
 POST {{baseUrl}}/api/tasks/templates
 Content-Type: {{contentType}}
 Accept: {{contentType}}
@@ -810,6 +811,7 @@ Authorization: Bearer {{auth_token}}
 # Temps rÃ©el attendu:
 # - channel household: module "tasks" (template/instance crÃ©Ã©e, mise Ã  jour, validation, rÃ©attribution)
 # - channel user: module "notifications" type "notification_created" pour les membres concernÃ©s
+#   (notamment "task_routine_assigned" a la creation d une routine)
 
 ### Tasks - Exemple template multi-assignation + bornes de routine
 POST {{baseUrl}}/api/tasks/templates
