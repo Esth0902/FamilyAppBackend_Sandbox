@@ -32,4 +32,9 @@ class MealPlan extends Model
     {
         return $this->hasMany(MealPlanItem::class);
     }
+
+    public function attendances(): HasMany
+    {
+        return $this->hasMany(MealPlanAttendance::class);
+    }
 }

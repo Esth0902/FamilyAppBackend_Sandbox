@@ -834,6 +834,8 @@ Authorization: Bearer {{auth_token}}
 # - channel household: module "tasks" (template/instance créée, mise à jour, validation, réattribution)
 # - channel user: module "notifications" type "notification_created" pour les membres concernés
 #   (notamment "task_routine_assigned" a la creation d une routine)
+# - notifications calendrier supplémentaires:
+#   calendar_task_added, calendar_task_updated, calendar_task_deleted
 
 ### Tasks - Exemple template multi-assignation + bornes de routine
 POST {{baseUrl}}/api/tasks/templates
@@ -901,6 +903,12 @@ Authorization: Bearer {{auth_token}}
 GET {{baseUrl}}/api/calendar/board?from=2026-02-16&to=2026-03-01
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
+
+# Réponse attendue (nouveau):
+# - meal_plan[].my_presence + meal_plan[].presence_overview
+#   (present, not_home, later, unanswered avec noms des membres)
+# - events[].my_participation + events[].participation_overview
+#   (participate, not_participate, unanswered avec noms des membres)
 
 > {%
   const events = Array.isArray(response.body?.events) ? response.body.events : [];
@@ -1028,6 +1036,34 @@ Authorization: Bearer {{auth_token}}
   "custom_title": "Resto",
   "note": "Reservation a 19h30"
 }
+
+### Calendar - Confirmer sa presence au repas planifie (tout membre du foyer)
+POST {{baseUrl}}/api/calendar/meal-plan/{{calendar_meal_plan_id}}/attendance
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "status": "not_home",
+  "reason": "Je mange a l exterieur"
+}
+
+### Calendar - Confirmer sa participation a un evenement (tout membre du foyer)
+POST {{baseUrl}}/api/calendar/events/{{calendar_event_id}}/participation
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "status": "not_participate",
+  "reason": "Indisponible ce soir"
+}
+
+# Notifications attendues:
+# - parents: calendar_meal_presence_updated (si status not_home/later)
+# - parents: calendar_event_participation_updated (participate/not_participate)
+# - autres membres du foyer: calendar_event_added|updated|deleted
+# - autres membres du foyer: calendar_meal_plan_added|updated|deleted
 
 ### Calendar - Supprimer un meal plan d une journee (parent)
 DELETE {{baseUrl}}/api/calendar/meal-plan/{{calendar_meal_plan_id}}

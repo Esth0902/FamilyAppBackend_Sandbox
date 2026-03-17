@@ -6,16 +6,20 @@ use App\Http\Controllers\Api\Concerns\ResolvesDateRange;
 use App\Http\Controllers\Api\Concerns\ResolvesHouseholdContext;
 use App\Http\Controllers\Controller;
 use App\Models\Event;
+use App\Models\EventParticipation;
 use App\Models\Household;
 use App\Models\HouseholdSetting;
 use App\Models\MealPlan;
+use App\Models\MealPlanAttendance;
 use App\Models\Recipe;
+use App\Models\UserNotification;
 use App\Models\User;
 use App\Services\RealtimePublisher;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
 
 class CalendarController extends Controller
@@ -37,6 +41,16 @@ class CalendarController extends Controller
         [$fromDate, $toDate] = $this->resolveDateRange($request, self::DEFAULT_RANGE_DAYS, self::MAX_RANGE_DAYS);
         $currentUserId = (int) $request->user()->id;
         $currentHouseholdId = (int) $household->id;
+        $householdMembers = $household->users()
+            ->select(['users.id', 'users.name'])
+            ->orderBy('users.name')
+            ->get()
+            ->map(static fn(User $member): array => [
+                'id' => (int) $member->id,
+                'name' => (string) ($member->name ?? 'Membre'),
+            ])
+            ->values()
+            ->all();
 
         $calendarEnabled = $this->isCalendarModuleEnabled($household);
         $calendarSettings = $this->resolveCalendarSettings($household);
@@ -66,7 +80,14 @@ class CalendarController extends Controller
                             ->where('end_at', '>=', $toDate->copy()->endOfDay());
                     });
             })
-            ->with('creator:id,name')
+            ->with([
+                'creator:id,name',
+                'participations' => function ($query) use ($currentHouseholdId): void {
+                    $query
+                        ->where('household_id', $currentHouseholdId)
+                        ->with('user:id,name');
+                },
+            ])
             ->orderBy('start_at')
             ->orderBy('id')
             ->get();
@@ -74,7 +95,14 @@ class CalendarController extends Controller
         $mealPlans = MealPlan::query()
             ->where('household_id', $household->id)
             ->whereBetween('date', [$fromDate->toDateString(), $toDate->toDateString()])
-            ->with(['items.recipe:id,title,type'])
+            ->with([
+                'items.recipe:id,title,type',
+                'attendances' => function ($query) use ($currentHouseholdId): void {
+                    $query
+                        ->where('household_id', $currentHouseholdId)
+                        ->with('user:id,name');
+                },
+            ])
             ->orderBy('date')
             ->orderByRaw("CASE meal_type WHEN 'matin' THEN 1 WHEN 'midi' THEN 2 WHEN 'soir' THEN 3 ELSE 4 END")
             ->orderBy('id')
@@ -97,11 +125,22 @@ class CalendarController extends Controller
                     && $sharedViewEnabled
                     && $hasLinkedHousehold,
                 'can_manage_meal_plan' => $role === User::ROLE_PARENT,
+                'can_confirm_meal_presence' => $calendarEnabled
+                    && (bool) ($calendarSettings['absence_tracking_enabled'] ?? true),
+                'can_confirm_event_participation' => $calendarEnabled,
             ],
             'events' => $events->map(
-                fn(Event $event): array => $this->toEventPayload($event, $currentUserId, $role, $currentHouseholdId)
+                fn(Event $event): array => $this->toEventPayload(
+                    $event,
+                    $currentUserId,
+                    $role,
+                    $currentHouseholdId,
+                    $householdMembers
+                )
             )->values(),
-            'meal_plan' => $mealPlans->map(fn(MealPlan $mealPlan): array => $this->toMealPlanPayload($mealPlan))->values(),
+            'meal_plan' => $mealPlans->map(
+                fn(MealPlan $mealPlan): array => $this->toMealPlanPayload($mealPlan, $currentUserId, $householdMembers)
+            )->values(),
         ]);
     }
 
@@ -151,6 +190,19 @@ class CalendarController extends Controller
             'is_shared_with_other_household' => $shouldShare,
         ])->load('creator:id,name');
 
+        $this->notifyCalendarChangeToHouseholdMembers(
+            household: $household,
+            actor: $request->user(),
+            type: 'calendar_event_added',
+            title: 'Événement ajouté',
+            body: sprintf('L\'événement "%s" a été ajouté au calendrier.', (string) $event->title),
+            data: [
+                'event_id' => (int) $event->id,
+                'event_title' => (string) $event->title,
+                'change' => 'added',
+            ],
+        );
+
         $this->publishCalendarRealtime(
             householdId: (int) $household->id,
             type: 'event.created',
@@ -178,7 +230,7 @@ class CalendarController extends Controller
 
         return response()->json([
             'message' => 'Evenement cree.',
-            'event' => $this->toEventPayload($event, (int) $request->user()->id, $role, (int) $household->id),
+            'event' => $this->toEventPayload($event, (int) $request->user()->id, $role, (int) $household->id, []),
         ], 201);
     }
 
@@ -229,6 +281,19 @@ class CalendarController extends Controller
 
         $event->load('creator:id,name');
 
+        $this->notifyCalendarChangeToHouseholdMembers(
+            household: $household,
+            actor: $request->user(),
+            type: 'calendar_event_updated',
+            title: 'Événement modifié',
+            body: sprintf('L\'événement "%s" a été modifié.', (string) $event->title),
+            data: [
+                'event_id' => (int) $event->id,
+                'event_title' => (string) $event->title,
+                'change' => 'updated',
+            ],
+        );
+
         $this->publishCalendarRealtime(
             householdId: (int) $household->id,
             type: 'event.updated',
@@ -275,7 +340,7 @@ class CalendarController extends Controller
 
         return response()->json([
             'message' => 'Evenement mis a jour.',
-            'event' => $this->toEventPayload($event, (int) $request->user()->id, $role, (int) $household->id),
+            'event' => $this->toEventPayload($event, (int) $request->user()->id, $role, (int) $household->id, []),
         ]);
     }
 
@@ -291,6 +356,19 @@ class CalendarController extends Controller
         $wasSharedWithOtherHousehold = (bool) $event->is_shared_with_other_household;
         $linkedHouseholdId = $wasSharedWithOtherHousehold ? $this->resolveConnectedHouseholdId($household) : null;
         $event->delete();
+
+        $this->notifyCalendarChangeToHouseholdMembers(
+            household: $household,
+            actor: $request->user(),
+            type: 'calendar_event_deleted',
+            title: 'Événement supprimé',
+            body: sprintf('L\'événement "%s" a été supprimé du calendrier.', $eventTitle),
+            data: [
+                'event_id' => $eventId,
+                'event_title' => $eventTitle,
+                'change' => 'deleted',
+            ],
+        );
 
         $this->publishCalendarRealtime(
             householdId: (int) $household->id,
@@ -347,6 +425,25 @@ class CalendarController extends Controller
 
         $mealPlan->load(['items.recipe:id,title,type']);
 
+        $this->notifyCalendarChangeToHouseholdMembers(
+            household: $household,
+            actor: $request->user(),
+            type: $mealPlan->wasRecentlyCreated ? 'calendar_meal_plan_added' : 'calendar_meal_plan_updated',
+            title: $mealPlan->wasRecentlyCreated ? 'Repas planifié ajouté' : 'Repas planifié modifié',
+            body: sprintf(
+                'Le repas %s du %s a été %s.',
+                $this->mealTypeLabel((string) $mealPlan->meal_type),
+                (string) optional($mealPlan->date)->toDateString(),
+                $mealPlan->wasRecentlyCreated ? 'ajouté' : 'modifié'
+            ),
+            data: [
+                'meal_plan_id' => (int) $mealPlan->id,
+                'date' => optional($mealPlan->date)->toDateString(),
+                'meal_type' => (string) $mealPlan->meal_type,
+                'change' => $mealPlan->wasRecentlyCreated ? 'added' : 'updated',
+            ],
+        );
+
         $this->publishCalendarRealtime(
             householdId: (int) $household->id,
             type: $mealPlan->wasRecentlyCreated ? 'meal_plan.created' : 'meal_plan.updated',
@@ -359,7 +456,7 @@ class CalendarController extends Controller
 
         return response()->json([
             'message' => $mealPlan->wasRecentlyCreated ? 'Meal plan cree.' : 'Meal plan mis a jour.',
-            'meal_plan' => $this->toMealPlanPayload($mealPlan),
+            'meal_plan' => $this->toMealPlanPayload($mealPlan, (int) $request->user()->id, []),
         ], $mealPlan->wasRecentlyCreated ? 201 : 200);
     }
 
@@ -387,6 +484,24 @@ class CalendarController extends Controller
 
         $mealPlan->load(['items.recipe:id,title,type']);
 
+        $this->notifyCalendarChangeToHouseholdMembers(
+            household: $household,
+            actor: $request->user(),
+            type: 'calendar_meal_plan_updated',
+            title: 'Repas planifié modifié',
+            body: sprintf(
+                'Le repas %s du %s a été modifié.',
+                $this->mealTypeLabel((string) $mealPlan->meal_type),
+                (string) optional($mealPlan->date)->toDateString()
+            ),
+            data: [
+                'meal_plan_id' => (int) $mealPlan->id,
+                'date' => optional($mealPlan->date)->toDateString(),
+                'meal_type' => (string) $mealPlan->meal_type,
+                'change' => 'updated',
+            ],
+        );
+
         $this->publishCalendarRealtime(
             householdId: (int) $household->id,
             type: 'meal_plan.updated',
@@ -399,7 +514,7 @@ class CalendarController extends Controller
 
         return response()->json([
             'message' => 'Meal plan mis a jour.',
-            'meal_plan' => $this->toMealPlanPayload($mealPlan),
+            'meal_plan' => $this->toMealPlanPayload($mealPlan, (int) $request->user()->id, []),
         ]);
     }
 
@@ -415,6 +530,20 @@ class CalendarController extends Controller
         $mealPlan->items()->delete();
         $mealPlan->delete();
 
+        $this->notifyCalendarChangeToHouseholdMembers(
+            household: $household,
+            actor: $request->user(),
+            type: 'calendar_meal_plan_deleted',
+            title: 'Repas planifié supprimé',
+            body: sprintf('Le repas %s du %s a été supprimé.', $this->mealTypeLabel($mealType), (string) $mealPlanDate),
+            data: [
+                'meal_plan_id' => $mealPlanId,
+                'date' => $mealPlanDate,
+                'meal_type' => $mealType,
+                'change' => 'deleted',
+            ],
+        );
+
         $this->publishCalendarRealtime(
             householdId: (int) $household->id,
             type: 'meal_plan.deleted',
@@ -427,6 +556,119 @@ class CalendarController extends Controller
 
         return response()->json([
             'message' => 'Meal plan supprime.',
+        ]);
+    }
+
+    public function confirmMealPlanAttendance(Request $request, MealPlan $mealPlan): JsonResponse
+    {
+        [$household] = $this->resolveHouseholdWithRole($request);
+        $this->ensureCalendarModuleEnabled($household);
+        $this->ensureAbsenceTrackingEnabled($household);
+        $this->ensureMealPlanBelongsToHousehold($mealPlan, $household);
+
+        $validated = $request->validate([
+            'status' => ['required', 'string', 'in:present,not_home,later'],
+            'reason' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $status = (string) $validated['status'];
+        $reason = trim((string) ($validated['reason'] ?? ''));
+        if ($status === 'present') {
+            $reason = '';
+        }
+
+        $attendance = MealPlanAttendance::query()->updateOrCreate(
+            [
+                'household_id' => $household->id,
+                'meal_plan_id' => $mealPlan->id,
+                'user_id' => $request->user()->id,
+            ],
+            [
+                'status' => $status,
+                'reason' => $reason !== '' ? $reason : null,
+                'responded_at' => now(),
+            ]
+        );
+        $this->notifyParentsAboutMealPresence(
+            household: $household,
+            actor: $request->user(),
+            mealPlan: $mealPlan,
+            attendance: $attendance,
+        );
+
+        $this->publishCalendarRealtime(
+            householdId: (int) $household->id,
+            type: 'meal_plan.attendance.updated',
+            payload: [
+                'meal_plan_id' => (int) $mealPlan->id,
+                'user_id' => (int) $request->user()->id,
+                'status' => (string) $attendance->status,
+            ],
+        );
+
+        return response()->json([
+            'message' => 'Presence au repas enregistree.',
+            'attendance' => [
+                'status' => (string) $attendance->status,
+                'reason' => $attendance->reason,
+                'responded_at' => optional($attendance->responded_at)->toIso8601String(),
+            ],
+        ]);
+    }
+
+    public function confirmEventParticipation(Request $request, Event $event): JsonResponse
+    {
+        [$household] = $this->resolveHouseholdWithRole($request);
+        $this->ensureCalendarModuleEnabled($household);
+        $this->ensureEventBelongsToHousehold($event, $household);
+
+        $validated = $request->validate([
+            'status' => ['required', 'string', 'in:participate,not_participate'],
+            'reason' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $status = (string) $validated['status'];
+        $reason = trim((string) ($validated['reason'] ?? ''));
+        if ($status === 'participate') {
+            $reason = '';
+        }
+
+        $participation = EventParticipation::query()->updateOrCreate(
+            [
+                'household_id' => $household->id,
+                'event_id' => $event->id,
+                'user_id' => $request->user()->id,
+            ],
+            [
+                'status' => $status,
+                'reason' => $reason !== '' ? $reason : null,
+                'responded_at' => now(),
+            ]
+        );
+        $this->notifyParentsAboutEventParticipation(
+            household: $household,
+            actor: $request->user(),
+            event: $event,
+            participation: $participation,
+        );
+
+        $this->publishCalendarRealtime(
+            householdId: (int) $household->id,
+            type: 'event.participation.updated',
+            payload: [
+                'event_id' => (int) $event->id,
+                'user_id' => (int) $request->user()->id,
+                'status' => (string) $participation->status,
+            ],
+        );
+
+        return response()->json([
+            'message' => 'Participation a l evenement enregistree.',
+            'participation' => [
+                'status' => (string) $participation->status,
+                'reason' => $participation->reason,
+                'responded_at' => optional($participation->responded_at)->toIso8601String(),
+            ],
         ]);
     }
 
@@ -514,6 +756,14 @@ class CalendarController extends Controller
         }
     }
 
+    private function ensureAbsenceTrackingEnabled(Household $household): void
+    {
+        $calendarSettings = $this->resolveCalendarSettings($household);
+        if (!(bool) ($calendarSettings['absence_tracking_enabled'] ?? true)) {
+            abort(403, 'Le suivi des absences est desactive pour ce foyer.');
+        }
+    }
+
     private function hasConnectedHousehold(Household $household): bool
     {
         return $this->resolveConnectedHouseholdId($household) !== null;
@@ -574,11 +824,24 @@ class CalendarController extends Controller
         }
     }
 
-    private function toEventPayload(Event $event, int $currentUserId, string $role, int $currentHouseholdId): array
+    private function toEventPayload(
+        Event $event,
+        int $currentUserId,
+        string $role,
+        int $currentHouseholdId,
+        array $householdMembers
+    ): array
     {
         $belongsToCurrentHousehold = (int) $event->household_id === $currentHouseholdId;
         $canManage = $belongsToCurrentHousehold
             && ($role === User::ROLE_PARENT || (int) $event->created_by_user_id === $currentUserId);
+        $participations = $event->relationLoaded('participations')
+            ? $event->participations
+            : collect();
+        $myParticipation = $participations->first(
+            static fn(EventParticipation $participation): bool => (int) $participation->user_id === $currentUserId
+        );
+        $participationOverview = $this->buildEventParticipationOverview($participations, $householdMembers);
 
         return [
             'id' => (int) $event->id,
@@ -592,21 +855,46 @@ class CalendarController extends Controller
                 'id' => $event->creator?->id ? (int) $event->creator->id : null,
                 'name' => $event->creator?->name,
             ],
+            'my_participation' => $myParticipation
+                ? [
+                    'status' => (string) $myParticipation->status,
+                    'reason' => $myParticipation->reason,
+                    'responded_at' => optional($myParticipation->responded_at)->toIso8601String(),
+                ]
+                : null,
+            'participation_overview' => $participationOverview,
             'permissions' => [
                 'can_update' => $canManage,
                 'can_delete' => $canManage,
+                'can_confirm_participation' => $belongsToCurrentHousehold,
             ],
         ];
     }
 
-    private function toMealPlanPayload(MealPlan $mealPlan): array
+    private function toMealPlanPayload(MealPlan $mealPlan, int $currentUserId, array $householdMembers): array
     {
+        $attendances = $mealPlan->relationLoaded('attendances')
+            ? $mealPlan->attendances
+            : collect();
+        $myAttendance = $attendances->first(
+            static fn(MealPlanAttendance $attendance): bool => (int) $attendance->user_id === $currentUserId
+        );
+        $presenceOverview = $this->buildMealPresenceOverview($attendances, $householdMembers);
+
         return [
             'id' => (int) $mealPlan->id,
             'date' => optional($mealPlan->date)->toDateString(),
             'meal_type' => (string) $mealPlan->meal_type,
             'custom_title' => $mealPlan->custom_title,
             'note' => $mealPlan->note,
+            'my_presence' => $myAttendance
+                ? [
+                    'status' => (string) $myAttendance->status,
+                    'reason' => $myAttendance->reason,
+                    'responded_at' => optional($myAttendance->responded_at)->toIso8601String(),
+                ]
+                : null,
+            'presence_overview' => $presenceOverview,
             'recipes' => $mealPlan->items
                 ->sortBy('position')
                 ->map(function ($item): array {
@@ -620,6 +908,301 @@ class CalendarController extends Controller
                 })
                 ->values(),
         ];
+    }
+
+    /**
+     * @param Collection<int, EventParticipation> $participations
+     * @param array<int, array{id:int,name:string}> $householdMembers
+     */
+    private function buildEventParticipationOverview(Collection $participations, array $householdMembers): array
+    {
+        $membersById = collect($householdMembers)
+            ->mapWithKeys(static fn(array $member): array => [(int) ($member['id'] ?? 0) => [
+                'id' => (int) ($member['id'] ?? 0),
+                'name' => (string) ($member['name'] ?? 'Membre'),
+            ]])
+            ->filter(static fn(array $member, int $id): bool => $id > 0)
+            ->all();
+
+        $participate = [];
+        $notParticipate = [];
+        $respondedIds = [];
+
+        foreach ($participations as $participation) {
+            $userId = (int) $participation->user_id;
+            if ($userId <= 0 || !array_key_exists($userId, $membersById)) {
+                continue;
+            }
+
+            $respondedIds[$userId] = true;
+            $payload = [
+                'id' => $userId,
+                'name' => $membersById[$userId]['name'],
+                'reason' => $participation->reason,
+                'responded_at' => optional($participation->responded_at)->toIso8601String(),
+            ];
+
+            if ((string) $participation->status === 'participate') {
+                $participate[] = $payload;
+                continue;
+            }
+
+            $notParticipate[] = $payload;
+        }
+
+        $unanswered = collect($membersById)
+            ->reject(static fn(array $member): bool => isset($respondedIds[(int) $member['id']]))
+            ->values()
+            ->all();
+
+        return [
+            'participate' => array_values($participate),
+            'not_participate' => array_values($notParticipate),
+            'unanswered' => $unanswered,
+        ];
+    }
+
+    /**
+     * @param Collection<int, MealPlanAttendance> $attendances
+     * @param array<int, array{id:int,name:string}> $householdMembers
+     */
+    private function buildMealPresenceOverview(Collection $attendances, array $householdMembers): array
+    {
+        $membersById = collect($householdMembers)
+            ->mapWithKeys(static fn(array $member): array => [(int) ($member['id'] ?? 0) => [
+                'id' => (int) ($member['id'] ?? 0),
+                'name' => (string) ($member['name'] ?? 'Membre'),
+            ]])
+            ->filter(static fn(array $member, int $id): bool => $id > 0)
+            ->all();
+
+        $present = [];
+        $notHome = [];
+        $later = [];
+        $respondedIds = [];
+
+        foreach ($attendances as $attendance) {
+            $userId = (int) $attendance->user_id;
+            if ($userId <= 0 || !array_key_exists($userId, $membersById)) {
+                continue;
+            }
+
+            $respondedIds[$userId] = true;
+            $payload = [
+                'id' => $userId,
+                'name' => $membersById[$userId]['name'],
+                'reason' => $attendance->reason,
+                'responded_at' => optional($attendance->responded_at)->toIso8601String(),
+            ];
+
+            $status = (string) $attendance->status;
+            if ($status === 'present') {
+                $present[] = $payload;
+                continue;
+            }
+            if ($status === 'later') {
+                $later[] = $payload;
+                continue;
+            }
+
+            $notHome[] = $payload;
+        }
+
+        $unanswered = collect($membersById)
+            ->reject(static fn(array $member): bool => isset($respondedIds[(int) $member['id']]))
+            ->values()
+            ->all();
+
+        return [
+            'present' => array_values($present),
+            'not_home' => array_values($notHome),
+            'later' => array_values($later),
+            'unanswered' => $unanswered,
+        ];
+    }
+
+    private function notifyParentsAboutMealPresence(
+        Household $household,
+        User $actor,
+        MealPlan $mealPlan,
+        MealPlanAttendance $attendance
+    ): void {
+        $status = (string) $attendance->status;
+        if (!in_array($status, ['not_home', 'later'], true)) {
+            return;
+        }
+
+        $actorId = (int) $actor->id;
+        $parentIds = $this->resolveParentUserIds($household, $actorId);
+        if (empty($parentIds)) {
+            return;
+        }
+
+        $actorName = (string) ($actor->name ?? 'Un membre');
+        $mealTypeLabel = $this->mealTypeLabel((string) $mealPlan->meal_type);
+        $dateLabel = (string) optional($mealPlan->date)->toDateString();
+        $statusLabel = $status === 'not_home' ? 'ne mangera pas à la maison' : 'mangera plus tard';
+
+        $this->notifyUsers(
+            userIds: $parentIds,
+            householdId: (int) $household->id,
+            type: 'calendar_meal_presence_updated',
+            title: 'Présence repas mise à jour',
+            body: sprintf('%s a indiqué qu’il %s (%s, %s).', $actorName, $statusLabel, $mealTypeLabel, $dateLabel),
+            data: [
+                'meal_plan_id' => (int) $mealPlan->id,
+                'meal_type' => (string) $mealPlan->meal_type,
+                'date' => $dateLabel,
+                'status' => $status,
+                'reason' => $attendance->reason,
+                'actor_user_id' => $actorId,
+                'actor_name' => $actorName,
+            ],
+        );
+    }
+
+    private function notifyParentsAboutEventParticipation(
+        Household $household,
+        User $actor,
+        Event $event,
+        EventParticipation $participation
+    ): void {
+        $actorId = (int) $actor->id;
+        $parentIds = $this->resolveParentUserIds($household, $actorId);
+        if (empty($parentIds)) {
+            return;
+        }
+
+        $status = (string) $participation->status;
+        $actorName = (string) ($actor->name ?? 'Un membre');
+        $statusLabel = $status === 'participate' ? 'participe' : 'ne participe pas';
+
+        $this->notifyUsers(
+            userIds: $parentIds,
+            householdId: (int) $household->id,
+            type: 'calendar_event_participation_updated',
+            title: 'Participation événement mise à jour',
+            body: sprintf('%s a indiqué qu’il %s à l’événement "%s".', $actorName, $statusLabel, (string) $event->title),
+            data: [
+                'event_id' => (int) $event->id,
+                'event_title' => (string) $event->title,
+                'status' => $status,
+                'reason' => $participation->reason,
+                'actor_user_id' => $actorId,
+                'actor_name' => $actorName,
+            ],
+        );
+    }
+
+    private function notifyCalendarChangeToHouseholdMembers(
+        Household $household,
+        User $actor,
+        string $type,
+        string $title,
+        string $body,
+        array $data = []
+    ): void {
+        $actorId = (int) $actor->id;
+        $memberIds = $household->users()
+            ->pluck('users.id')
+            ->map(static fn(mixed $id): int => (int) $id)
+            ->filter(static fn(int $id): bool => $id > 0 && $id !== $actorId)
+            ->values()
+            ->all();
+
+        if (empty($memberIds)) {
+            return;
+        }
+
+        $this->notifyUsers(
+            userIds: $memberIds,
+            householdId: (int) $household->id,
+            type: $type,
+            title: $title,
+            body: $body,
+            data: $data + [
+                'actor_user_id' => $actorId,
+                'actor_name' => (string) ($actor->name ?? 'Un membre'),
+            ],
+        );
+    }
+
+    /**
+     * @return array<int, int>
+     */
+    private function resolveParentUserIds(Household $household, ?int $excludeUserId = null): array
+    {
+        return $household->users()
+            ->wherePivot('role', User::ROLE_PARENT)
+            ->pluck('users.id')
+            ->map(static fn(mixed $id): int => (int) $id)
+            ->filter(static fn(int $id): bool => $id > 0 && ($excludeUserId === null || $id !== $excludeUserId))
+            ->values()
+            ->all();
+    }
+
+    private function notifyUsers(
+        array $userIds,
+        int $householdId,
+        string $type,
+        string $title,
+        string $body,
+        array $data = []
+    ): void {
+        $ids = collect($userIds)
+            ->map(static fn(mixed $id): int => (int) $id)
+            ->filter(static fn(int $id): bool => $id > 0)
+            ->unique()
+            ->values()
+            ->all();
+
+        foreach ($ids as $userId) {
+            $this->notifyUser($userId, $householdId, $type, $title, $body, $data);
+        }
+    }
+
+    private function notifyUser(
+        int $userId,
+        int $householdId,
+        string $type,
+        string $title,
+        string $body,
+        array $data = []
+    ): void {
+        if ($userId <= 0 || $householdId <= 0) {
+            return;
+        }
+
+        $notification = UserNotification::query()->create([
+            'household_id' => $householdId,
+            'user_id' => $userId,
+            'type' => $type,
+            'title' => $title,
+            'body' => $body,
+            'data' => $data + ['household_id' => $householdId],
+        ]);
+
+        $this->realtimePublisher->publishUser(
+            userId: $userId,
+            module: 'notifications',
+            type: 'notification_created',
+            payload: [
+                'notification_id' => (int) $notification->id,
+                'household_id' => $householdId,
+                'type' => $type,
+                'title' => $title,
+                'body' => $body,
+            ],
+        );
+    }
+
+    private function mealTypeLabel(string $mealType): string
+    {
+        return match ($mealType) {
+            'matin' => 'matin',
+            'midi' => 'midi',
+            default => 'soir',
+        };
     }
 
     private function publishCalendarRealtime(int $householdId, string $type, array $payload = []): void

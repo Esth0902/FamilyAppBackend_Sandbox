@@ -8,6 +8,7 @@ use App\Models\HouseholdSetting;
 use App\Models\MealPlan;
 use App\Models\Recipe;
 use App\Models\User;
+use App\Models\UserNotification;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -435,6 +436,374 @@ class CalendarApiTest extends TestCase
             ->assertCreated()
             ->assertJsonPath('meal_plan.date', '2026-03-18')
             ->assertJsonPath('meal_plan.recipes.0.id', $globalRecipe->id);
+    }
+
+    public function test_member_can_confirm_meal_presence_with_optional_reason(): void
+    {
+        [$member, $household] = $this->createHouseholdMember(User::ROLE_CHILD);
+
+        HouseholdSetting::query()->create([
+            'household_id' => $household->id,
+            'has_calendar' => true,
+            'calendar_config' => [
+                'absence_tracking_enabled' => true,
+            ],
+        ]);
+
+        $mealPlan = MealPlan::query()->create([
+            'household_id' => $household->id,
+            'date' => '2026-03-20',
+            'meal_type' => 'soir',
+            'custom_title' => 'Pizza',
+        ]);
+
+        Sanctum::actingAs($member);
+
+        $this->postJson("/api/calendar/meal-plan/{$mealPlan->id}/attendance", [
+            'status' => 'not_home',
+            'reason' => 'Je mange chez un ami',
+        ])
+            ->assertOk()
+            ->assertJsonPath('attendance.status', 'not_home')
+            ->assertJsonPath('attendance.reason', 'Je mange chez un ami');
+
+        $this->assertDatabaseHas('meal_plan_attendances', [
+            'household_id' => $household->id,
+            'meal_plan_id' => $mealPlan->id,
+            'user_id' => $member->id,
+            'status' => 'not_home',
+            'reason' => 'Je mange chez un ami',
+        ]);
+    }
+
+    public function test_member_can_confirm_event_participation_with_reason(): void
+    {
+        [$member, $household] = $this->createHouseholdMember(User::ROLE_CHILD);
+
+        HouseholdSetting::query()->create([
+            'household_id' => $household->id,
+            'has_calendar' => true,
+        ]);
+
+        $event = Event::query()->create([
+            'household_id' => $household->id,
+            'created_by_user_id' => $member->id,
+            'title' => 'Anniversaire',
+            'start_at' => '2026-03-22 14:00:00',
+            'end_at' => '2026-03-22 17:00:00',
+            'is_shared_with_other_household' => false,
+        ]);
+
+        Sanctum::actingAs($member);
+
+        $this->postJson("/api/calendar/events/{$event->id}/participation", [
+            'status' => 'not_participate',
+            'reason' => 'Je suis chez mamie',
+        ])
+            ->assertOk()
+            ->assertJsonPath('participation.status', 'not_participate')
+            ->assertJsonPath('participation.reason', 'Je suis chez mamie');
+
+        $this->assertDatabaseHas('event_participations', [
+            'household_id' => $household->id,
+            'event_id' => $event->id,
+            'user_id' => $member->id,
+            'status' => 'not_participate',
+            'reason' => 'Je suis chez mamie',
+        ]);
+    }
+
+    public function test_board_returns_only_current_member_confirmation_payloads(): void
+    {
+        [$memberA, $household] = $this->createHouseholdMember(User::ROLE_PARENT);
+        $memberB = User::factory()->create([
+            'must_change_password' => false,
+        ]);
+        $household->users()->attach($memberB->id, ['role' => User::ROLE_CHILD]);
+
+        HouseholdSetting::query()->create([
+            'household_id' => $household->id,
+            'has_calendar' => true,
+            'calendar_config' => [
+                'absence_tracking_enabled' => true,
+            ],
+        ]);
+
+        $mealPlan = MealPlan::query()->create([
+            'household_id' => $household->id,
+            'date' => '2026-03-24',
+            'meal_type' => 'soir',
+            'custom_title' => 'Pates',
+        ]);
+
+        $event = Event::query()->create([
+            'household_id' => $household->id,
+            'created_by_user_id' => $memberA->id,
+            'title' => 'Cinema',
+            'start_at' => '2026-03-24 19:00:00',
+            'end_at' => '2026-03-24 21:00:00',
+            'is_shared_with_other_household' => false,
+        ]);
+
+        $this->postJson("/api/calendar/meal-plan/{$mealPlan->id}/attendance", [
+            'status' => 'later',
+            'reason' => 'Retour tardif',
+        ])->assertUnauthorized();
+
+        Sanctum::actingAs($memberA);
+        $this->postJson("/api/calendar/meal-plan/{$mealPlan->id}/attendance", [
+            'status' => 'later',
+            'reason' => 'Retour tardif',
+        ])->assertOk();
+        $this->postJson("/api/calendar/events/{$event->id}/participation", [
+            'status' => 'participate',
+        ])->assertOk();
+
+        Sanctum::actingAs($memberB);
+        $this->postJson("/api/calendar/meal-plan/{$mealPlan->id}/attendance", [
+            'status' => 'not_home',
+            'reason' => 'Repas externe',
+        ])->assertOk();
+        $this->postJson("/api/calendar/events/{$event->id}/participation", [
+            'status' => 'not_participate',
+            'reason' => 'Je suis absent',
+        ])->assertOk();
+
+        $response = $this->getJson('/api/calendar/board?from=2026-03-20&to=2026-03-26');
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('meal_plan.0.my_presence.status', 'not_home')
+            ->assertJsonPath('meal_plan.0.my_presence.reason', 'Repas externe')
+            ->assertJsonPath('events.0.my_participation.status', 'not_participate')
+            ->assertJsonPath('events.0.my_participation.reason', 'Je suis absent');
+
+        $mealOverview = $response->json('meal_plan.0.presence_overview');
+        $this->assertIsArray($mealOverview);
+        $this->assertTrue(
+            collect($mealOverview['not_home'] ?? [])->contains(
+                fn(array $item): bool => (int) ($item['id'] ?? 0) === (int) $memberB->id
+            )
+        );
+        $this->assertTrue(
+            collect($mealOverview['later'] ?? [])->contains(
+                fn(array $item): bool => (int) ($item['id'] ?? 0) === (int) $memberA->id
+            )
+        );
+
+        $eventOverview = $response->json('events.0.participation_overview');
+        $this->assertIsArray($eventOverview);
+        $this->assertTrue(
+            collect($eventOverview['participate'] ?? [])->contains(
+                fn(array $item): bool => (int) ($item['id'] ?? 0) === (int) $memberA->id
+            )
+        );
+        $this->assertTrue(
+            collect($eventOverview['not_participate'] ?? [])->contains(
+                fn(array $item): bool => (int) ($item['id'] ?? 0) === (int) $memberB->id
+            )
+        );
+    }
+
+    public function test_parents_are_notified_when_member_reports_meal_absence_or_late_meal(): void
+    {
+        [$parentA, $household] = $this->createHouseholdMember(User::ROLE_PARENT);
+        $parentB = User::factory()->create(['must_change_password' => false]);
+        $child = User::factory()->create(['must_change_password' => false]);
+        $household->users()->attach($parentB->id, ['role' => User::ROLE_PARENT]);
+        $household->users()->attach($child->id, ['role' => User::ROLE_CHILD]);
+
+        HouseholdSetting::query()->create([
+            'household_id' => $household->id,
+            'has_calendar' => true,
+            'calendar_config' => [
+                'absence_tracking_enabled' => true,
+            ],
+        ]);
+
+        $mealPlan = MealPlan::query()->create([
+            'household_id' => $household->id,
+            'date' => '2026-03-27',
+            'meal_type' => 'soir',
+            'custom_title' => 'Soupe',
+        ]);
+
+        Sanctum::actingAs($child);
+        $this->postJson("/api/calendar/meal-plan/{$mealPlan->id}/attendance", [
+            'status' => 'not_home',
+            'reason' => 'Repas en dehors',
+        ])->assertOk();
+
+        $this->assertDatabaseHas('user_notifications', [
+            'user_id' => $parentA->id,
+            'household_id' => $household->id,
+            'type' => 'calendar_meal_presence_updated',
+        ]);
+        $this->assertDatabaseHas('user_notifications', [
+            'user_id' => $parentB->id,
+            'household_id' => $household->id,
+            'type' => 'calendar_meal_presence_updated',
+        ]);
+
+        $countAfterAbsence = UserNotification::query()
+            ->where('household_id', $household->id)
+            ->where('type', 'calendar_meal_presence_updated')
+            ->count();
+
+        $this->postJson("/api/calendar/meal-plan/{$mealPlan->id}/attendance", [
+            'status' => 'present',
+        ])->assertOk();
+
+        $countAfterPresent = UserNotification::query()
+            ->where('household_id', $household->id)
+            ->where('type', 'calendar_meal_presence_updated')
+            ->count();
+
+        $this->assertSame($countAfterAbsence, $countAfterPresent);
+    }
+
+    public function test_parents_are_notified_when_member_confirms_event_participation(): void
+    {
+        [$parentA, $household] = $this->createHouseholdMember(User::ROLE_PARENT);
+        $parentB = User::factory()->create(['must_change_password' => false]);
+        $child = User::factory()->create(['must_change_password' => false]);
+        $household->users()->attach($parentB->id, ['role' => User::ROLE_PARENT]);
+        $household->users()->attach($child->id, ['role' => User::ROLE_CHILD]);
+
+        HouseholdSetting::query()->create([
+            'household_id' => $household->id,
+            'has_calendar' => true,
+        ]);
+
+        $event = Event::query()->create([
+            'household_id' => $household->id,
+            'created_by_user_id' => $parentA->id,
+            'title' => 'Sortie parc',
+            'start_at' => '2026-03-28 10:00:00',
+            'end_at' => '2026-03-28 12:00:00',
+            'is_shared_with_other_household' => false,
+        ]);
+
+        Sanctum::actingAs($child);
+        $this->postJson("/api/calendar/events/{$event->id}/participation", [
+            'status' => 'participate',
+        ])->assertOk();
+
+        $this->assertDatabaseHas('user_notifications', [
+            'user_id' => $parentA->id,
+            'household_id' => $household->id,
+            'type' => 'calendar_event_participation_updated',
+        ]);
+        $this->assertDatabaseHas('user_notifications', [
+            'user_id' => $parentB->id,
+            'household_id' => $household->id,
+            'type' => 'calendar_event_participation_updated',
+        ]);
+    }
+
+    public function test_calendar_changes_notify_other_household_members(): void
+    {
+        [$parentA, $household] = $this->createHouseholdMember(User::ROLE_PARENT);
+        $parentB = User::factory()->create(['must_change_password' => false]);
+        $child = User::factory()->create(['must_change_password' => false]);
+        $household->users()->attach($parentB->id, ['role' => User::ROLE_PARENT]);
+        $household->users()->attach($child->id, ['role' => User::ROLE_CHILD]);
+
+        HouseholdSetting::query()->create([
+            'household_id' => $household->id,
+            'has_calendar' => true,
+        ]);
+
+        Sanctum::actingAs($parentA);
+        $eventCreate = $this->postJson('/api/calendar/events', [
+            'title' => 'Médecin',
+            'start_at' => '2026-03-29T14:00:00',
+            'end_at' => '2026-03-29T14:30:00',
+            'is_shared_with_other_household' => false,
+        ])->assertCreated();
+        $eventId = (int) ($eventCreate->json('event.id') ?? 0);
+
+        $this->patchJson("/api/calendar/events/{$eventId}", [
+            'title' => 'Médecin modifié',
+            'start_at' => '2026-03-29T15:00:00',
+            'end_at' => '2026-03-29T15:30:00',
+            'is_shared_with_other_household' => false,
+        ])->assertOk();
+        $this->deleteJson("/api/calendar/events/{$eventId}")->assertOk();
+
+        $mealCreate = $this->postJson('/api/calendar/meal-plan', [
+            'date' => '2026-03-29',
+            'meal_type' => 'midi',
+            'custom_title' => 'Pâtes',
+        ])->assertCreated();
+        $mealPlanId = (int) ($mealCreate->json('meal_plan.id') ?? 0);
+
+        $this->patchJson("/api/calendar/meal-plan/{$mealPlanId}", [
+            'date' => '2026-03-29',
+            'meal_type' => 'midi',
+            'custom_title' => 'Pâtes maison',
+        ])->assertOk();
+        $this->deleteJson("/api/calendar/meal-plan/{$mealPlanId}")->assertOk();
+
+        foreach (['calendar_event_added', 'calendar_event_updated', 'calendar_event_deleted'] as $type) {
+            $this->assertDatabaseHas('user_notifications', [
+                'user_id' => $parentB->id,
+                'household_id' => $household->id,
+                'type' => $type,
+            ]);
+            $this->assertDatabaseHas('user_notifications', [
+                'user_id' => $child->id,
+                'household_id' => $household->id,
+                'type' => $type,
+            ]);
+        }
+
+        foreach (['calendar_meal_plan_added', 'calendar_meal_plan_updated', 'calendar_meal_plan_deleted'] as $type) {
+            $this->assertDatabaseHas('user_notifications', [
+                'user_id' => $parentB->id,
+                'household_id' => $household->id,
+                'type' => $type,
+            ]);
+            $this->assertDatabaseHas('user_notifications', [
+                'user_id' => $child->id,
+                'household_id' => $household->id,
+                'type' => $type,
+            ]);
+        }
+    }
+
+    public function test_member_cannot_confirm_meal_presence_from_another_household(): void
+    {
+        [$memberA, $householdA] = $this->createHouseholdMember(User::ROLE_CHILD);
+        [$memberB, $householdB] = $this->createHouseholdMember(User::ROLE_CHILD);
+
+        HouseholdSetting::query()->create([
+            'household_id' => $householdA->id,
+            'has_calendar' => true,
+            'calendar_config' => [
+                'absence_tracking_enabled' => true,
+            ],
+        ]);
+        HouseholdSetting::query()->create([
+            'household_id' => $householdB->id,
+            'has_calendar' => true,
+            'calendar_config' => [
+                'absence_tracking_enabled' => true,
+            ],
+        ]);
+
+        $mealPlan = MealPlan::query()->create([
+            'household_id' => $householdA->id,
+            'date' => '2026-03-25',
+            'meal_type' => 'midi',
+            'custom_title' => 'Salade',
+        ]);
+
+        Sanctum::actingAs($memberB);
+
+        $this->postJson("/api/calendar/meal-plan/{$mealPlan->id}/attendance", [
+            'status' => 'present',
+        ])->assertNotFound();
     }
 
     private function createHouseholdMember(string $role): array

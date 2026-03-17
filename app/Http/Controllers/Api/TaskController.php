@@ -863,6 +863,21 @@ class TaskController extends Controller
             data: $notificationPayload,
         );
 
+        $allMemberIdsExceptActor = $household->users()
+            ->pluck('users.id')
+            ->map(static fn(mixed $id): int => (int) $id)
+            ->filter(static fn(int $id): bool => $id > 0 && $id !== $currentUserId)
+            ->values()
+            ->all();
+        $this->notifyUsers(
+            userIds: $allMemberIdsExceptActor,
+            householdId: (int) $household->id,
+            type: 'calendar_task_added',
+            title: 'Tâche ajoutée au calendrier',
+            body: sprintf('La tâche "%s" a été ajoutée dans le calendrier du foyer %s.', $taskTitle, $householdName),
+            data: $notificationPayload + ['change' => 'added'],
+        );
+
         $this->publishTasksRealtime(
             householdId: (int) $household->id,
             type: 'instance.upserted',
@@ -1073,6 +1088,25 @@ class TaskController extends Controller
             );
         }
 
+        $allMemberIdsExceptActor = $household->users()
+            ->pluck('users.id')
+            ->map(static fn(mixed $id): int => (int) $id)
+            ->filter(static fn(int $id): bool => $id > 0 && $id !== $currentUserId)
+            ->values()
+            ->all();
+        $statusNow = (string) $instance->status;
+        $isDeletion = $previousStatus !== self::STATUS_CANCELLED && $statusNow === self::STATUS_CANCELLED;
+        $this->notifyUsers(
+            userIds: $allMemberIdsExceptActor,
+            householdId: (int) $household->id,
+            type: $isDeletion ? 'calendar_task_deleted' : 'calendar_task_updated',
+            title: $isDeletion ? 'Tâche supprimée du calendrier' : 'Tâche modifiée',
+            body: $isDeletion
+                ? sprintf('La tâche "%s" a été supprimée du calendrier du foyer %s.', $taskTitle, $householdName)
+                : sprintf('La tâche "%s" a été modifiée dans le calendrier du foyer %s.', $taskTitle, $householdName),
+            data: $sharedPayload + ['change' => $isDeletion ? 'deleted' : 'updated'],
+        );
+
         $this->publishTasksRealtime(
             householdId: (int) $household->id,
             type: 'instance.updated',
@@ -1142,6 +1176,22 @@ class TaskController extends Controller
             title: 'Tâche validée',
             body: sprintf('La tâche "%s" a été validée dans le foyer %s.', $taskTitle, $householdName),
             data: $payload,
+        );
+
+        $actorId = (int) $request->user()->id;
+        $allMemberIdsExceptActor = $household->users()
+            ->pluck('users.id')
+            ->map(static fn(mixed $id): int => (int) $id)
+            ->filter(static fn(int $id): bool => $id > 0 && $id !== $actorId)
+            ->values()
+            ->all();
+        $this->notifyUsers(
+            userIds: $allMemberIdsExceptActor,
+            householdId: (int) $household->id,
+            type: 'calendar_task_updated',
+            title: 'Tâche modifiée',
+            body: sprintf('La tâche "%s" a été modifiée dans le calendrier du foyer %s.', $taskTitle, $householdName),
+            data: $payload + ['change' => 'updated'],
         );
 
         $this->publishTasksRealtime(

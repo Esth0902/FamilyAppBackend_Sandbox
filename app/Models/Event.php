@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Event extends Model
 {
@@ -39,5 +40,10 @@ class Event extends Model
 
     public function household() {
         return $this->belongsTo(Household::class);
+    }
+
+    public function participations(): HasMany
+    {
+        return $this->hasMany(EventParticipation::class);
     }
 }

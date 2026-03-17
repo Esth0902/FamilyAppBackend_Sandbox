@@ -96,9 +96,11 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'must.change.password'])->gro
     Route::post('/calendar/events', [CalendarController::class, 'storeEvent']);
     Route::patch('/calendar/events/{event}', [CalendarController::class, 'updateEvent']);
     Route::delete('/calendar/events/{event}', [CalendarController::class, 'destroyEvent']);
+    Route::post('/calendar/events/{event}/participation', [CalendarController::class, 'confirmEventParticipation']);
     Route::post('/calendar/meal-plan', [CalendarController::class, 'storeMealPlan']);
     Route::patch('/calendar/meal-plan/{mealPlan}', [CalendarController::class, 'updateMealPlan']);
     Route::delete('/calendar/meal-plan/{mealPlan}', [CalendarController::class, 'destroyMealPlan']);
+    Route::post('/calendar/meal-plan/{mealPlan}/attendance', [CalendarController::class, 'confirmMealPlanAttendance']);
 
     // Notifications
     Route::get('/notifications/pending', [NotificationController::class, 'pending']);
