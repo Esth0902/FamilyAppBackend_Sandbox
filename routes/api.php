@@ -36,6 +36,7 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'must.change.password'])->gro
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::post('/auth/change-initial-credentials', [AuthController::class, 'changeInitialCredentials']);
     Route::patch('/auth/profile', [AuthController::class, 'updateProfile']);
+    Route::delete('/auth/account', [AuthController::class, 'destroyAccount']);
     Route::patch('/auth/households/{household}/nickname', [AuthController::class, 'updateHouseholdNickname']);
 
     // Households

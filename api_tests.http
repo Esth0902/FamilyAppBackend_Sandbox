@@ -98,6 +98,21 @@ Authorization: Bearer {{auth_token}}
   "password_confirmation": "EncorePlusFort123!"
 }
 
+### Supprimer definitivement le compte utilisateur
+# Preconditions:
+# - current_password obligatoire
+# - si l'utilisateur est le dernier parent d'un foyer:
+#   -> 422 + required_action=define_new_parent_or_delete_household
+#   -> blocked_households[] avec household + candidate_members
+DELETE {{baseUrl}}/api/auth/account
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "current_password": "EncorePlusFort123!"
+}
+
 ### Mise a jour du pseudo utilisateur sur un foyer (necessite {{household_id}} existant)
 PATCH {{baseUrl}}/api/auth/households/{{household_id}}/nickname
 Content-Type: {{contentType}}
@@ -1289,6 +1304,9 @@ Authorization: Bearer {{auth_token}}
 }
 
 ### Foyer - Quitter le foyer actif (parent, seulement si un autre parent reste)
+# Si l'utilisateur est le dernier parent:
+# - 422 + required_action=define_new_parent_or_delete_household
+# - payload: household + candidate_members
 POST {{baseUrl}}/api/households/leave
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}

@@ -555,6 +555,66 @@ class HouseholdMemberApiTest extends TestCase
             ->assertJsonValidationErrors(['role']);
     }
 
+    public function test_parent_leave_requires_new_parent_or_household_deletion_when_last_parent(): void
+    {
+        [$household, $parent, $child] = $this->createHouseholdWithMembers();
+        Sanctum::actingAs($parent);
+
+        $this->postJson('/api/households/leave', [], [
+            'X-Household-Id' => (string) $household->id,
+        ])
+            ->assertStatus(422)
+            ->assertJsonPath('required_action', 'define_new_parent_or_delete_household')
+            ->assertJsonPath('household.id', (int) $household->id)
+            ->assertJsonPath('candidate_members.0.id', (int) $child->id);
+    }
+
+    public function test_delete_account_is_blocked_when_user_is_last_parent_of_a_household(): void
+    {
+        [$household, $parent] = $this->createHouseholdWithMembers();
+        Sanctum::actingAs($parent);
+
+        $this->deleteJson('/api/auth/account', [
+            'current_password' => 'password',
+        ])
+            ->assertStatus(422)
+            ->assertJsonPath('required_action', 'define_new_parent_or_delete_household')
+            ->assertJsonPath('blocked_households.0.household.id', (int) $household->id);
+
+        $this->assertDatabaseHas('users', [
+            'id' => (int) $parent->id,
+        ]);
+    }
+
+    public function test_delete_account_succeeds_when_another_parent_remains(): void
+    {
+        [$household, $parent] = $this->createHouseholdWithMembers();
+        $secondParent = User::factory()->create([
+            'must_change_password' => false,
+        ]);
+
+        $household->users()->attach($secondParent->id, [
+            'role' => User::ROLE_PARENT,
+            'nickname' => 'Parent 2',
+        ]);
+
+        Sanctum::actingAs($parent);
+
+        $this->deleteJson('/api/auth/account', [
+            'current_password' => 'password',
+        ])
+            ->assertOk()
+            ->assertJsonPath('message', 'Compte utilisateur supprimé définitivement.');
+
+        $this->assertDatabaseMissing('users', [
+            'id' => (int) $parent->id,
+        ]);
+        $this->assertDatabaseMissing('household_user', [
+            'household_id' => (int) $household->id,
+            'user_id' => (int) $parent->id,
+        ]);
+    }
+
     public function test_members_endpoint_only_returns_current_household_members(): void
     {
         [$householdA, $parentA, $childA] = $this->createHouseholdWithMembers();

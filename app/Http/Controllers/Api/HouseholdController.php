@@ -618,7 +618,17 @@ class HouseholdController extends Controller
             abort(404, 'Membre introuvable pour ce foyer.');
         }
 
-        $this->ensureParentCanBeRemoved($household, (int) $member->id);
+        if (!$this->hasOtherParent($household, (int) $member->id)) {
+            return response()->json(JsonUtf8Sanitizer::sanitize([
+                'message' => "Vous êtes le dernier parent de ce foyer. Désignez un nouveau parent ou supprimez ce foyer avant de le quitter.",
+                'required_action' => 'define_new_parent_or_delete_household',
+                'household' => [
+                    'id' => (int) $household->id,
+                    'name' => (string) $household->name,
+                ],
+                'candidate_members' => $this->resolveParentReplacementCandidates($household, (int) $member->id),
+            ]), 422);
+        }
 
         DB::transaction(function () use ($household, $member): void {
             $household->users()->detach((int) $member->id);
@@ -1910,16 +1920,39 @@ class HouseholdController extends Controller
 
     private function ensureParentCanBeRemoved(Household $household, int $memberId): void
     {
-        $otherParentExists = $household->users()
+        if (!$this->hasOtherParent($household, $memberId)) {
+            throw ValidationException::withMessages([
+                'role' => ["Le foyer doit conserver au moins un parent. Désignez un nouveau parent ou supprimez le foyer."],
+            ]);
+        }
+    }
+
+    private function hasOtherParent(Household $household, int $memberId): bool
+    {
+        return $household->users()
             ->wherePivot('role', User::ROLE_PARENT)
             ->where('users.id', '!=', $memberId)
             ->exists();
+    }
 
-        if (!$otherParentExists) {
-            throw ValidationException::withMessages([
-                'role' => ['Le foyer doit conserver au moins un parent.'],
-            ]);
-        }
+    /**
+     * @return array<int, array{id:int, name:string, role:string}>
+     */
+    private function resolveParentReplacementCandidates(Household $household, int $excludedUserId): array
+    {
+        return $household->users()
+            ->select(['users.id', 'users.name'])
+            ->where('users.id', '!=', $excludedUserId)
+            ->orderByRaw("CASE WHEN household_user.role = ? THEN 0 ELSE 1 END", [User::ROLE_PARENT])
+            ->orderBy('users.name')
+            ->get()
+            ->map(static fn(User $member): array => [
+                'id' => (int) $member->id,
+                'name' => (string) $member->name,
+                'role' => (string) ($member->pivot->role ?? User::ROLE_CHILD),
+            ])
+            ->values()
+            ->all();
     }
 
     private function resolveEditableHousehold(Request $request): Household
