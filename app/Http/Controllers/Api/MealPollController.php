@@ -58,6 +58,8 @@ class MealPollController extends Controller
                 'closed_at' => $poll->closed_at ?? now(),
             ]);
             $poll->refresh();
+            $poll->load('household.users');
+            $this->notificationService->notifyPollClosedTooLate($poll);
 
             $this->emitPollRealtime(
                 poll: $poll,
@@ -414,6 +416,7 @@ class MealPollController extends Controller
                 'closed_at' => now(),
             ]);
             $poll->load('household.users');
+            $this->notificationService->notifyPollClosedTooLate($poll);
             $this->notificationService->notifyPollNeedsValidation($poll);
             $poll->update(['close_request_sent_at' => now()]);
         }

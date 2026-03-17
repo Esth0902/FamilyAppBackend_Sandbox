@@ -539,6 +539,10 @@ Authorization: Bearer {{auth_token}}
 POST {{baseUrl}}/api/meal-polls/{{meal_poll_id}}/close
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
+# Attendu:
+# - statut du sondage => closed
+# - notification type poll_needs_validation pour le parent validateur
+# - notification type poll_closed_too_late pour les membres qui n'ont pas voté
 
 ### Meal Polls V2 - Valider les resultats + meal plan
 POST {{baseUrl}}/api/meal-polls/{{meal_poll_id}}/validate
@@ -576,6 +580,7 @@ Authorization: Bearer {{auth_token}}
 GET {{baseUrl}}/api/notifications/pending
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
+X-Household-Id: {{active_household_id}}
 
 > {%
   const notifications = Array.isArray(response.body.notifications) ? response.body.notifications : [];
@@ -584,6 +589,12 @@ Authorization: Bearer {{auth_token}}
     client.log('notification_id capture: ' + notifications[0].id);
   }
 %}
+
+# RÃ©ponse attendue (champs utiles pour le frontend temps rÃ©el):
+# - notifications[].household_id (null|number)
+# - notifications[].sent_at (ISO 8601|null)
+# - notifications[].read_at (ISO 8601|null)
+# - notifications[].data.status (pending|accepted|refused) pour les demandes actionnables
 
 ### Notifications - Marquer lue
 POST {{baseUrl}}/api/notifications/{{notification_id}}/read
@@ -786,6 +797,10 @@ POST {{baseUrl}}/api/tasks/instances/{{task_instance_id}}/validate
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
+# Temps rÃ©el attendu:
+# - channel household: module "tasks" (template/instance crÃ©Ã©e, mise Ã  jour, validation, rÃ©attribution)
+# - channel user: module "notifications" type "notification_created" pour les membres concernÃ©s
+
 ### Tasks - Exemple template multi-assignation + bornes de routine
 POST {{baseUrl}}/api/tasks/templates
 Content-Type: {{contentType}}
@@ -839,6 +854,10 @@ Authorization: Bearer {{auth_token}}
 {
   "action": "accept"
 }
+# Attendu:
+# - La notification initiale task_reassignment_invite passe en status accepted/refused + read_at renseigne
+# - Une nouvelle notification de type task_reassignment_invite_responded est creee pour le demandeur
+
 ### Tasks - Supprimer un template (parent)
 DELETE {{baseUrl}}/api/tasks/templates/{{task_template_id}}
 Accept: {{contentType}}
@@ -981,6 +1000,9 @@ DELETE {{baseUrl}}/api/calendar/meal-plan/{{calendar_meal_plan_id}}
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
+# Temps rÃ©el attendu:
+# - channel household: module "calendar" (event.created|updated|deleted, meal_plan.created|updated|deleted)
+
 ### Calendar - Supprimer un evenement
 DELETE {{baseUrl}}/api/calendar/events/{{calendar_event_id}}
 Accept: {{contentType}}
@@ -1095,6 +1117,10 @@ Authorization: Bearer {{auth_token}}
   "comment": "Demande reportee a la prochaine periode"
 }
 
+# Temps rÃ©el attendu:
+# - channel household: module "budget" (settings, paiements, avances)
+# - channel user: module "notifications" type "notification_created" (enfant/parents concernÃ©s)
+
 ### Members - Lister les membres du foyer actif
 GET {{baseUrl}}/api/household/members
 Accept: {{contentType}}
@@ -1185,6 +1211,9 @@ Authorization: Bearer {{auth_token}}
 {
   "action": "accept"
 }
+# Attendu:
+# - La notification household_invite passe en status accepted + read_at renseigne
+# - Une nouvelle notification de type household_invite_responded est creee pour l'utilisateur invitant
 
 ### Notifications - Invitation foyer: refuser
 POST {{baseUrl}}/api/notifications/{{invite_notification_id}}/household-invite-response
@@ -1195,4 +1224,7 @@ Authorization: Bearer {{auth_token}}
 {
   "action": "refuse"
 }
+# Attendu:
+# - La notification household_invite passe en status refused + read_at renseigne
+# - Une nouvelle notification de type household_invite_responded est creee pour l'utilisateur invitant
 

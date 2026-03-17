@@ -631,6 +631,78 @@ class TaskApiTest extends TestCase
             'task_instance_id' => $instance->id,
             'user_id' => $childA->id,
         ]);
+
+        /** @var UserNotification|null $requesterNotification */
+        $requesterNotification = UserNotification::query()
+            ->where('user_id', $childA->id)
+            ->where('type', 'task_reassignment_invite_responded')
+            ->latest('id')
+            ->first();
+        $this->assertNotNull($requesterNotification);
+        $this->assertSame('accepted', (string) data_get($requesterNotification?->data, 'status'));
+        $this->assertSame((int) $instance->id, (int) data_get($requesterNotification?->data, 'task_instance_id'));
+    }
+
+    public function test_assigned_child_can_request_reassignment_and_invited_member_can_refuse(): void
+    {
+        [$parent, $childA, $childB] = $this->createHouseholdWithMembers(2);
+        $household = $parent->households()->firstOrFail();
+
+        HouseholdSetting::query()->create([
+            'household_id' => $household->id,
+            'has_tasks' => true,
+            'has_calendar' => true,
+        ]);
+
+        $template = TaskTemplate::query()->create([
+            'household_id' => $household->id,
+            'name' => 'Sortir les cartons',
+            'recurrence' => 'once',
+            'is_rotation' => false,
+            'rotation_cycle_weeks' => 1,
+        ]);
+
+        $instance = TaskInstance::query()->create([
+            'task_template_id' => $template->id,
+            'user_id' => $childA->id,
+            'due_date' => '2026-03-22',
+            'status' => "\u{00E0} faire",
+            'validated_by_parent' => false,
+        ]);
+
+        Sanctum::actingAs($childA);
+        $this->postJson("/api/tasks/instances/{$instance->id}/reassignment-request", [
+            'invited_user_id' => $childB->id,
+        ])->assertStatus(202);
+
+        /** @var UserNotification $notification */
+        $notification = UserNotification::query()
+            ->where('type', 'task_reassignment_invite')
+            ->where('user_id', $childB->id)
+            ->latest('id')
+            ->firstOrFail();
+
+        Sanctum::actingAs($childB);
+        $this->postJson("/api/notifications/{$notification->id}/task-reassignment-response", [
+            'action' => 'refuse',
+        ])
+            ->assertOk()
+            ->assertJsonPath('invitation.status', 'refused');
+
+        $this->assertDatabaseHas('task_instances', [
+            'id' => $instance->id,
+            'user_id' => $childA->id,
+        ]);
+
+        /** @var UserNotification|null $requesterNotification */
+        $requesterNotification = UserNotification::query()
+            ->where('user_id', $childA->id)
+            ->where('type', 'task_reassignment_invite_responded')
+            ->latest('id')
+            ->first();
+        $this->assertNotNull($requesterNotification);
+        $this->assertSame('refused', (string) data_get($requesterNotification?->data, 'status'));
+        $this->assertSame((int) $instance->id, (int) data_get($requesterNotification?->data, 'task_instance_id'));
     }
 
     public function test_accepted_reassignment_is_preserved_on_recurring_instance_generation(): void

@@ -264,6 +264,16 @@ class TaskController extends Controller
             'fixed_user_id' => $fixedUserId ? (int) $fixedUserId : null,
         ])->load('fixedUser:id,name');
 
+        $this->publishTasksRealtime(
+            householdId: (int) $household->id,
+            type: 'template.created',
+            payload: [
+                'template_id' => (int) $template->id,
+                'name' => (string) $template->name,
+                'recurrence' => (string) $template->recurrence,
+            ],
+        );
+
         return response()->json([
             'message' => 'Template de tâche créé.',
             'template' => [
@@ -466,6 +476,16 @@ class TaskController extends Controller
 
         $template->load('fixedUser:id,name');
 
+        $this->publishTasksRealtime(
+            householdId: (int) $household->id,
+            type: 'template.updated',
+            payload: [
+                'template_id' => (int) $template->id,
+                'name' => (string) $template->name,
+                'recurrence' => (string) $template->recurrence,
+            ],
+        );
+
         return response()->json([
             'message' => 'Template de tâche mis à jour.',
             'template' => [
@@ -495,7 +515,18 @@ class TaskController extends Controller
         $this->ensureParentRole($role);
         $this->ensureTemplateBelongsToHousehold($template, $household);
 
+        $templateId = (int) $template->id;
+        $templateName = (string) $template->name;
         $template->delete();
+
+        $this->publishTasksRealtime(
+            householdId: (int) $household->id,
+            type: 'template.deleted',
+            payload: [
+                'template_id' => $templateId,
+                'name' => $templateName,
+            ],
+        );
 
         return response()->json([
             'message' => 'Template de tâche supprimé.',
@@ -596,6 +627,18 @@ class TaskController extends Controller
                     'task_name' => (string) data_get($invitationNotification->data, 'task_name', 'Tâche'),
                     'requester_user_id' => (int) data_get($invitationNotification->data, 'requester_user_id'),
                     'requester_name' => (string) data_get($invitationNotification->data, 'requester_name', 'Membre'),
+                ],
+            );
+
+            $this->publishTasksRealtime(
+                householdId: (int) $household->id,
+                type: 'instance.reassignment_requested',
+                payload: [
+                    'task_instance_id' => (int) data_get($invitationNotification->data, 'task_instance_id'),
+                    'task_name' => (string) data_get($invitationNotification->data, 'task_name', 'Tâche'),
+                    'requester_user_id' => (int) data_get($invitationNotification->data, 'requester_user_id'),
+                    'invited_user_id' => $invitedUserId,
+                    'notification_id' => (int) $invitationNotification->id,
                 ],
             );
         });
@@ -766,6 +809,39 @@ class TaskController extends Controller
             'assignees:id,name',
         ]);
 
+        $taskTitle = (string) ($instance->template?->name ?? 'Tâche');
+        $notificationPayload = [
+            'household_id' => (int) $household->id,
+            'task_instance_id' => (int) $instance->id,
+            'task_template_id' => (int) $instance->task_template_id,
+            'task_name' => $taskTitle,
+            'due_date' => optional($instance->due_date)->toDateString(),
+            'assigned_by_user_id' => $currentUserId,
+            'assigned_by_name' => (string) ($request->user()->name ?? 'Un membre'),
+        ];
+
+        $this->notifyUsers(
+            userIds: array_values(array_filter($assigneeIds, static fn(int $id): bool => $id !== $currentUserId)),
+            householdId: (int) $household->id,
+            type: 'task_assigned',
+            title: 'Nouvelle tâche assignée',
+            body: sprintf('La tâche "%s" vous a été assignée.', $taskTitle),
+            data: $notificationPayload,
+        );
+
+        $this->publishTasksRealtime(
+            householdId: (int) $household->id,
+            type: 'instance.upserted',
+            payload: [
+                'task_instance_id' => (int) $instance->id,
+                'task_template_id' => (int) $instance->task_template_id,
+                'task_name' => $taskTitle,
+                'due_date' => optional($instance->due_date)->toDateString(),
+                'assignee_ids' => $assigneeIds,
+                'instance_ids' => array_values(array_map(static fn(TaskInstance $item): int => (int) $item->id, $instances)),
+            ],
+        );
+
         return response()->json([
             'message' => 'Tâche créée.',
             'instance' => $this->toInstancePayload($instance),
@@ -787,7 +863,22 @@ class TaskController extends Controller
             'validated_by_parent' => ['sometimes', 'boolean'],
         ]);
 
-        $instance->loadMissing('assignees:id,name');
+        $instance->loadMissing([
+            'assignees:id,name',
+            'template:id,household_id,name',
+        ]);
+
+        $previousStatus = (string) $instance->status;
+        $previousValidatedByParent = (bool) $instance->validated_by_parent;
+        $previousAssigneeIds = $this->normalizeMemberIdsInput(
+            $instance->assignees
+                ->map(static fn(User $assignee): int => (int) $assignee->id)
+                ->values()
+                ->all()
+        );
+        if (count($previousAssigneeIds) === 0 && (int) $instance->user_id > 0) {
+            $previousAssigneeIds = [(int) $instance->user_id];
+        }
 
         $isParent = $role === User::ROLE_PARENT;
         $currentUserId = (int) $request->user()->id;
@@ -878,6 +969,84 @@ class TaskController extends Controller
             'assignees:id,name',
         ]);
 
+        $currentAssigneeIds = $this->normalizeMemberIdsInput(
+            $instance->assignees
+                ->map(static fn(User $assignee): int => (int) $assignee->id)
+                ->values()
+                ->all()
+        );
+        if (count($currentAssigneeIds) === 0 && (int) $instance->user_id > 0) {
+            $currentAssigneeIds = [(int) $instance->user_id];
+        }
+
+        $taskTitle = (string) ($instance->template?->name ?? 'Tâche');
+        $sharedPayload = [
+            'household_id' => (int) $household->id,
+            'task_instance_id' => (int) $instance->id,
+            'task_template_id' => (int) $instance->task_template_id,
+            'task_name' => $taskTitle,
+            'due_date' => optional($instance->due_date)->toDateString(),
+            'actor_user_id' => $currentUserId,
+            'actor_name' => (string) ($request->user()->name ?? 'Un membre'),
+        ];
+
+        if ($previousStatus !== self::STATUS_DONE && (string) $instance->status === self::STATUS_DONE) {
+            $this->notifyUsers(
+                userIds: array_values(array_filter($this->resolveParentUserIds($household), static fn(int $id): bool => $id !== $currentUserId)),
+                householdId: (int) $household->id,
+                type: 'task_done_validation_needed',
+                title: 'Validation de tâche requise',
+                body: sprintf('La tâche "%s" a été marquée réalisée.', $taskTitle),
+                data: $sharedPayload,
+            );
+        }
+
+        if (!$previousValidatedByParent && (bool) $instance->validated_by_parent) {
+            $this->notifyUsers(
+                userIds: $currentAssigneeIds,
+                householdId: (int) $household->id,
+                type: 'task_validated',
+                title: 'Tâche validée',
+                body: sprintf('La tâche "%s" a été validée par un parent.', $taskTitle),
+                data: $sharedPayload,
+            );
+        }
+
+        if ($previousStatus !== self::STATUS_CANCELLED && (string) $instance->status === self::STATUS_CANCELLED) {
+            $this->notifyUsers(
+                userIds: $currentAssigneeIds,
+                householdId: (int) $household->id,
+                type: 'task_cancelled',
+                title: 'Tâche annulée',
+                body: sprintf('La tâche "%s" a été annulée.', $taskTitle),
+                data: $sharedPayload,
+            );
+        }
+
+        if (!$this->memberIdsEquals($previousAssigneeIds, $currentAssigneeIds)) {
+            $this->notifyUsers(
+                userIds: array_values(array_filter($currentAssigneeIds, static fn(int $id): bool => $id !== $currentUserId)),
+                householdId: (int) $household->id,
+                type: 'task_reassigned',
+                title: 'Réattribution de tâche',
+                body: sprintf('La tâche "%s" vous a été réattribuée.', $taskTitle),
+                data: $sharedPayload + [
+                    'previous_assignee_ids' => $previousAssigneeIds,
+                    'assignee_ids' => $currentAssigneeIds,
+                ],
+            );
+        }
+
+        $this->publishTasksRealtime(
+            householdId: (int) $household->id,
+            type: 'instance.updated',
+            payload: $sharedPayload + [
+                'status' => (string) $instance->status,
+                'validated_by_parent' => (bool) $instance->validated_by_parent,
+                'assignee_ids' => $currentAssigneeIds,
+            ],
+        );
+
         return response()->json([
             'message' => 'Tâche mise à jour.',
             'instance' => $this->toInstancePayload($instance),
@@ -906,6 +1075,44 @@ class TaskController extends Controller
             'user:id,name',
             'assignees:id,name',
         ]);
+
+        $assigneeIds = $this->normalizeMemberIdsInput(
+            $instance->assignees
+                ->map(static fn(User $assignee): int => (int) $assignee->id)
+                ->values()
+                ->all()
+        );
+        if (count($assigneeIds) === 0 && (int) $instance->user_id > 0) {
+            $assigneeIds = [(int) $instance->user_id];
+        }
+
+        $taskTitle = (string) ($instance->template?->name ?? 'Tâche');
+        $payload = [
+            'household_id' => (int) $household->id,
+            'task_instance_id' => (int) $instance->id,
+            'task_template_id' => (int) $instance->task_template_id,
+            'task_name' => $taskTitle,
+            'due_date' => optional($instance->due_date)->toDateString(),
+            'validated_by_user_id' => (int) $request->user()->id,
+            'validated_by_name' => (string) ($request->user()->name ?? 'Parent'),
+        ];
+
+        $this->notifyUsers(
+            userIds: $assigneeIds,
+            householdId: (int) $household->id,
+            type: 'task_validated',
+            title: 'Tâche validée',
+            body: sprintf('La tâche "%s" a été validée.', $taskTitle),
+            data: $payload,
+        );
+
+        $this->publishTasksRealtime(
+            householdId: (int) $household->id,
+            type: 'instance.validated',
+            payload: $payload + [
+                'assignee_ids' => $assigneeIds,
+            ],
+        );
 
         return response()->json([
             'message' => 'Tâche validée.',
@@ -950,6 +1157,95 @@ class TaskController extends Controller
                 'inter_household_week_start' => optional($instance->template?->inter_household_week_start)->toDateString(),
             ],
         ];
+    }
+
+    private function publishTasksRealtime(int $householdId, string $type, array $payload = []): void
+    {
+        $this->realtimePublisher->publishHousehold(
+            householdId: $householdId,
+            module: 'tasks',
+            type: $type,
+            payload: $payload + ['household_id' => $householdId],
+        );
+    }
+
+    private function notifyUser(
+        int $userId,
+        int $householdId,
+        string $type,
+        string $title,
+        string $body,
+        array $data = []
+    ): void {
+        if ($userId <= 0 || $householdId <= 0) {
+            return;
+        }
+
+        $notification = UserNotification::query()->create([
+            'household_id' => $householdId,
+            'user_id' => $userId,
+            'type' => $type,
+            'title' => $title,
+            'body' => $body,
+            'data' => $data + [
+                'household_id' => $householdId,
+            ],
+        ]);
+
+        $this->realtimePublisher->publishUser(
+            userId: $userId,
+            module: 'notifications',
+            type: 'notification_created',
+            payload: [
+                'notification_id' => (int) $notification->id,
+                'household_id' => $householdId,
+                'type' => $type,
+                'title' => $title,
+                'body' => $body,
+            ],
+        );
+    }
+
+    /**
+     * @param array<int, int> $userIds
+     */
+    private function notifyUsers(
+        array $userIds,
+        int $householdId,
+        string $type,
+        string $title,
+        string $body,
+        array $data = []
+    ): void {
+        $uniqueIds = collect($this->normalizeMemberIdsInput($userIds))
+            ->unique()
+            ->values()
+            ->all();
+
+        foreach ($uniqueIds as $userId) {
+            $this->notifyUser(
+                userId: (int) $userId,
+                householdId: $householdId,
+                type: $type,
+                title: $title,
+                body: $body,
+                data: $data,
+            );
+        }
+    }
+
+    /**
+     * @return array<int, int>
+     */
+    private function resolveParentUserIds(Household $household): array
+    {
+        return $household->users()
+            ->wherePivot('role', User::ROLE_PARENT)
+            ->pluck('users.id')
+            ->map(static fn(mixed $id): int => (int) $id)
+            ->filter(static fn(int $id): bool => $id > 0)
+            ->values()
+            ->all();
     }
 
     private function isTasksModuleEnabled(Household $household): bool

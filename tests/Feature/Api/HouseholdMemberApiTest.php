@@ -191,6 +191,86 @@ class HouseholdMemberApiTest extends TestCase
         ]);
     }
 
+    public function test_pending_notifications_include_household_invite_even_when_active_household_header_differs(): void
+    {
+        [$targetHousehold, $parent] = $this->createHouseholdWithMembers('Foyer cible');
+        $invitedUser = User::factory()->create([
+            'name' => 'Nathan',
+            'email' => 'nathan.test.pending@example.com',
+            'must_change_password' => false,
+        ]);
+
+        $otherHousehold = Household::query()->create(['name' => 'Foyer actif']);
+        $otherHousehold->users()->attach($invitedUser->id, [
+            'role' => User::ROLE_PARENT,
+            'nickname' => 'Nathan actif',
+        ]);
+
+        $notification = UserNotification::query()->create([
+            'household_id' => $targetHousehold->id,
+            'user_id' => $invitedUser->id,
+            'type' => 'household_invite',
+            'title' => 'Invitation de foyer',
+            'body' => 'Invitation test',
+            'data' => [
+                'household_id' => (int) $targetHousehold->id,
+                'household_name' => (string) $targetHousehold->name,
+                'inviter_user_id' => (int) $parent->id,
+                'inviter_name' => (string) $parent->name,
+                'invited_role' => User::ROLE_CHILD,
+                'status' => 'pending',
+            ],
+        ]);
+
+        Sanctum::actingAs($invitedUser);
+
+        $response = $this->getJson('/api/notifications/pending', [
+            'X-Household-Id' => (string) $otherHousehold->id,
+        ])->assertOk();
+
+        $notificationIds = collect($response->json('notifications'))
+            ->pluck('id')
+            ->map(static fn($id): int => (int) $id)
+            ->values()
+            ->all();
+
+        $this->assertContains((int) $notification->id, $notificationIds);
+    }
+
+    public function test_pending_notifications_include_unread_non_actionable_notifications_even_after_sent(): void
+    {
+        [$household, $parent] = $this->createHouseholdWithMembers('Foyer notifications');
+
+        $notification = UserNotification::query()->create([
+            'household_id' => $household->id,
+            'user_id' => $parent->id,
+            'type' => 'task_reassignment_invite_responded',
+            'title' => 'Reprise de tâche acceptée',
+            'body' => 'Un membre a accepté votre demande.',
+            'data' => [
+                'household_id' => (int) $household->id,
+                'task_instance_id' => 123,
+                'status' => 'accepted',
+            ],
+            'sent_at' => now(),
+            'read_at' => null,
+        ]);
+
+        Sanctum::actingAs($parent);
+
+        $response = $this->getJson('/api/notifications/pending', [
+            'X-Household-Id' => (string) $household->id,
+        ])->assertOk();
+
+        $notificationIds = collect($response->json('notifications'))
+            ->pluck('id')
+            ->map(static fn($id): int => (int) $id)
+            ->values()
+            ->all();
+
+        $this->assertContains((int) $notification->id, $notificationIds);
+    }
+
     public function test_invited_user_can_accept_household_invitation(): void
     {
         [$household, $parent] = $this->createHouseholdWithMembers();
@@ -239,6 +319,16 @@ class HouseholdMemberApiTest extends TestCase
         $notification->refresh();
         $this->assertSame('accepted', (string) data_get($notification->data, 'status'));
         $this->assertNotNull($notification->read_at);
+
+        /** @var UserNotification|null $inviterNotification */
+        $inviterNotification = UserNotification::query()
+            ->where('user_id', $parent->id)
+            ->where('type', 'household_invite_responded')
+            ->latest('id')
+            ->first();
+        $this->assertNotNull($inviterNotification);
+        $this->assertSame('accepted', (string) data_get($inviterNotification?->data, 'status'));
+        $this->assertSame((int) $invitedUser->id, (int) data_get($inviterNotification?->data, 'invited_user_id'));
     }
 
     public function test_invited_user_can_refuse_household_invitation(): void
@@ -284,6 +374,16 @@ class HouseholdMemberApiTest extends TestCase
         $notification->refresh();
         $this->assertSame('refused', (string) data_get($notification->data, 'status'));
         $this->assertNotNull($notification->read_at);
+
+        /** @var UserNotification|null $inviterNotification */
+        $inviterNotification = UserNotification::query()
+            ->where('user_id', $parent->id)
+            ->where('type', 'household_invite_responded')
+            ->latest('id')
+            ->first();
+        $this->assertNotNull($inviterNotification);
+        $this->assertSame('refused', (string) data_get($inviterNotification?->data, 'status'));
+        $this->assertSame((int) $invitedUser->id, (int) data_get($inviterNotification?->data, 'invited_user_id'));
     }
 
     public function test_child_cannot_update_household_config_or_create_dietary_tags(): void

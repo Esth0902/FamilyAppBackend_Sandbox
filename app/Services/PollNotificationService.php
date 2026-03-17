@@ -133,6 +133,29 @@ class PollNotificationService
         );
     }
 
+    public function notifyPollClosedTooLate(MealPoll $poll): void
+    {
+        $poll->loadMissing('household.users');
+        $nonVoters = $this->resolveNonVoterUserIds($poll);
+
+        if ($nonVoters->isEmpty()) {
+            return;
+        }
+
+        $this->notifyUsers(
+            (int)$poll->household_id,
+            $nonVoters,
+            'poll_closed_too_late',
+            'Sondage clôturé',
+            'Le sondage est clôturé, il est trop tard pour voter. Consulte les résultats.',
+            [
+                'poll_id' => (int) $poll->id,
+                'ends_at' => optional($poll->ends_at)->toIso8601String(),
+                'closed_at' => optional($poll->closed_at)->toIso8601String(),
+            ]
+        );
+    }
+
     public function notifyParentOpenPrompt(int $householdId, int $parentUserId, int $pollDay, string $pollTime): void
     {
         $this->notifyUsers(
@@ -147,5 +170,27 @@ class PollNotificationService
             ]
         );
     }
-}
 
+    private function resolveNonVoterUserIds(MealPoll $poll): Collection
+    {
+        $allUserIds = $poll->household?->users
+            ?->pluck('id')
+            ->map(static fn($id): int => (int) $id)
+            ->filter(static fn(int $id): bool => $id > 0)
+            ->values()
+            ?? collect();
+
+        if ($allUserIds->isEmpty()) {
+            return collect();
+        }
+
+        $voterIds = $poll->votes()
+            ->pluck('user_id')
+            ->map(static fn($id): int => (int) $id)
+            ->filter(static fn(int $id): bool => $id > 0)
+            ->unique()
+            ->values();
+
+        return $allUserIds->diff($voterIds)->values();
+    }
+}

@@ -11,6 +11,7 @@ use App\Models\HouseholdSetting;
 use App\Models\MealPlan;
 use App\Models\Recipe;
 use App\Models\User;
+use App\Services\RealtimePublisher;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -24,6 +25,11 @@ class CalendarController extends Controller
 
     private const DEFAULT_RANGE_DAYS = 42;
     private const MAX_RANGE_DAYS = 45;
+
+    public function __construct(
+        private readonly RealtimePublisher $realtimePublisher,
+    ) {
+    }
 
     public function board(Request $request): JsonResponse
     {
@@ -121,6 +127,18 @@ class CalendarController extends Controller
             'is_shared_with_other_household' => $shouldShare,
         ])->load('creator:id,name');
 
+        $this->publishCalendarRealtime(
+            householdId: (int) $household->id,
+            type: 'event.created',
+            payload: [
+                'event_id' => (int) $event->id,
+                'title' => (string) $event->title,
+                'start_at' => optional($event->start_at)->toIso8601String(),
+                'end_at' => optional($event->end_at)->toIso8601String(),
+                'is_shared_with_other_household' => (bool) $event->is_shared_with_other_household,
+            ],
+        );
+
         return response()->json([
             'message' => 'Evenement cree.',
             'event' => $this->toEventPayload($event, (int) $request->user()->id, $role),
@@ -165,6 +183,18 @@ class CalendarController extends Controller
 
         $event->load('creator:id,name');
 
+        $this->publishCalendarRealtime(
+            householdId: (int) $household->id,
+            type: 'event.updated',
+            payload: [
+                'event_id' => (int) $event->id,
+                'title' => (string) $event->title,
+                'start_at' => optional($event->start_at)->toIso8601String(),
+                'end_at' => optional($event->end_at)->toIso8601String(),
+                'is_shared_with_other_household' => (bool) $event->is_shared_with_other_household,
+            ],
+        );
+
         return response()->json([
             'message' => 'Evenement mis a jour.',
             'event' => $this->toEventPayload($event, (int) $request->user()->id, $role),
@@ -178,7 +208,18 @@ class CalendarController extends Controller
         $this->ensureEventBelongsToHousehold($event, $household);
         $this->ensureEventCanBeManaged($event, (int) $request->user()->id, $role);
 
+        $eventId = (int) $event->id;
+        $eventTitle = (string) $event->title;
         $event->delete();
+
+        $this->publishCalendarRealtime(
+            householdId: (int) $household->id,
+            type: 'event.deleted',
+            payload: [
+                'event_id' => $eventId,
+                'title' => $eventTitle,
+            ],
+        );
 
         return response()->json([
             'message' => 'Evenement supprime.',
@@ -216,6 +257,16 @@ class CalendarController extends Controller
 
         $mealPlan->load(['items.recipe:id,title,type']);
 
+        $this->publishCalendarRealtime(
+            householdId: (int) $household->id,
+            type: $mealPlan->wasRecentlyCreated ? 'meal_plan.created' : 'meal_plan.updated',
+            payload: [
+                'meal_plan_id' => (int) $mealPlan->id,
+                'date' => optional($mealPlan->date)->toDateString(),
+                'meal_type' => (string) $mealPlan->meal_type,
+            ],
+        );
+
         return response()->json([
             'message' => $mealPlan->wasRecentlyCreated ? 'Meal plan cree.' : 'Meal plan mis a jour.',
             'meal_plan' => $this->toMealPlanPayload($mealPlan),
@@ -246,6 +297,16 @@ class CalendarController extends Controller
 
         $mealPlan->load(['items.recipe:id,title,type']);
 
+        $this->publishCalendarRealtime(
+            householdId: (int) $household->id,
+            type: 'meal_plan.updated',
+            payload: [
+                'meal_plan_id' => (int) $mealPlan->id,
+                'date' => optional($mealPlan->date)->toDateString(),
+                'meal_type' => (string) $mealPlan->meal_type,
+            ],
+        );
+
         return response()->json([
             'message' => 'Meal plan mis a jour.',
             'meal_plan' => $this->toMealPlanPayload($mealPlan),
@@ -258,8 +319,21 @@ class CalendarController extends Controller
         $this->ensureParentRole($role);
         $this->ensureMealPlanBelongsToHousehold($mealPlan, $household);
 
+        $mealPlanId = (int) $mealPlan->id;
+        $mealPlanDate = optional($mealPlan->date)->toDateString();
+        $mealType = (string) $mealPlan->meal_type;
         $mealPlan->items()->delete();
         $mealPlan->delete();
+
+        $this->publishCalendarRealtime(
+            householdId: (int) $household->id,
+            type: 'meal_plan.deleted',
+            payload: [
+                'meal_plan_id' => $mealPlanId,
+                'date' => $mealPlanDate,
+                'meal_type' => $mealType,
+            ],
+        );
 
         return response()->json([
             'message' => 'Meal plan supprime.',
@@ -427,5 +501,15 @@ class CalendarController extends Controller
                 })
                 ->values(),
         ];
+    }
+
+    private function publishCalendarRealtime(int $householdId, string $type, array $payload = []): void
+    {
+        $this->realtimePublisher->publishHousehold(
+            householdId: $householdId,
+            module: 'calendar',
+            type: $type,
+            payload: $payload + ['household_id' => $householdId],
+        );
     }
 }

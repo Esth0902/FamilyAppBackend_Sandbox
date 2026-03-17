@@ -25,8 +25,16 @@ class NotificationController extends Controller
     {
         $userId = (int)$request->user()->id;
         $now = now();
+        $activeHouseholdId = (int) $request->header('X-Household-Id', 0);
+        $canFilterByHousehold = false;
+        if ($activeHouseholdId > 0) {
+            $canFilterByHousehold = $request->user()
+                ->households()
+                ->where('households.id', $activeHouseholdId)
+                ->exists();
+        }
 
-        $notifications = UserNotification::query()
+        $notificationsQuery = UserNotification::query()
             ->where('user_id', $userId)
             ->where(function ($query) use ($now): void {
                 $query
@@ -58,11 +66,34 @@ class NotificationController extends Controller
                                     ->whereNull('data->status')
                                     ->orWhere('data->status', 'pending');
                             });
+                    })
+                    ->orWhere(function ($unreadQuery) use ($now): void {
+                        $unreadQuery
+                            ->whereNull('read_at')
+                            ->whereNotIn('type', ['household_invite', 'task_reassignment_invite'])
+                            ->where(function ($scheduleQuery) use ($now): void {
+                                $scheduleQuery
+                                    ->whereNull('scheduled_for')
+                                    ->orWhere('scheduled_for', '<=', $now);
+                            });
                     });
             })
             ->orderBy('created_at')
-            ->limit(30)
-            ->get();
+            ->limit(30);
+
+        if ($canFilterByHousehold) {
+            $notificationsQuery->where(function ($query) use ($activeHouseholdId): void {
+                $query
+                    ->where(function ($householdScopeQuery) use ($activeHouseholdId): void {
+                        $householdScopeQuery
+                            ->whereNull('household_id')
+                            ->orWhere('household_id', $activeHouseholdId);
+                    })
+                    ->orWhere('type', 'household_invite');
+            });
+        }
+
+        $notifications = $notificationsQuery->get();
 
         $unsentNotificationIds = $notifications
             ->filter(fn(UserNotification $notification): bool => is_null($notification->sent_at))
@@ -72,16 +103,28 @@ class NotificationController extends Controller
             UserNotification::query()
                 ->whereIn('id', $unsentNotificationIds)
                 ->update(['sent_at' => $now]);
+
+            $sentIdLookup = $unsentNotificationIds
+                ->map(static fn($id): int => (int) $id)
+                ->values()
+                ->all();
+            $notifications->each(function (UserNotification $notification) use ($sentIdLookup, $now): void {
+                if (in_array((int) $notification->id, $sentIdLookup, true)) {
+                    $notification->sent_at = $now;
+                }
+            });
         }
 
         return response()->json([
             'notifications' => $notifications->map(fn(UserNotification $notification): array => [
                 'id' => $notification->id,
+                'household_id' => $notification->household_id ? (int) $notification->household_id : null,
                 'type' => $notification->type,
                 'title' => $notification->title,
                 'body' => $notification->body,
                 'data' => $notification->data ?? [],
                 'scheduled_for' => optional($notification->scheduled_for)->toIso8601String(),
+                'sent_at' => optional($notification->sent_at)->toIso8601String(),
                 'read_at' => optional($notification->read_at)->toIso8601String(),
                 'created_at' => optional($notification->created_at)->toIso8601String(),
             ])->values(),
@@ -189,7 +232,39 @@ class NotificationController extends Controller
                 'read_at' => $now,
             ])->save();
 
-            DB::afterCommit(function () use ($household, $user, $data): void {
+            $inviterNotification = null;
+            $inviterUserId = (int) ($data['inviter_user_id'] ?? 0);
+            if ($inviterUserId > 0 && $inviterUserId !== (int) ($user->id ?? 0)) {
+                $isAcceptedStatus = (string) ($data['status'] ?? 'pending') === 'accepted';
+                $inviterNotification = $this->createUserNotification(
+                    userId: $inviterUserId,
+                    householdId: (int) $household->id,
+                    type: 'household_invite_responded',
+                    title: $isAcceptedStatus ? 'Invitation foyer acceptée' : 'Invitation foyer refusée',
+                    body: $isAcceptedStatus
+                        ? sprintf(
+                            '%s a accepté l\'invitation à rejoindre le foyer %s.',
+                            (string) ($user->name ?? 'Un membre'),
+                            (string) $household->name
+                        )
+                        : sprintf(
+                            '%s a refusé l\'invitation à rejoindre le foyer %s.',
+                            (string) ($user->name ?? 'Un membre'),
+                            (string) $household->name
+                        ),
+                    data: [
+                        'household_id' => (int) $household->id,
+                        'household_name' => (string) $household->name,
+                        'invited_user_id' => (int) ($user->id ?? 0),
+                        'invited_user_name' => (string) ($user->name ?? 'Un membre'),
+                        'status' => (string) ($data['status'] ?? 'pending'),
+                        'action' => (string) ($data['responded_action'] ?? ''),
+                        'responded_at' => (string) ($data['responded_at'] ?? ''),
+                    ],
+                );
+            }
+
+            DB::afterCommit(function () use ($household, $user, $data, $inviterNotification): void {
                 $this->realtimePublisher->publishHousehold(
                     householdId: (int) $household->id,
                     module: 'household',
@@ -203,6 +278,10 @@ class NotificationController extends Controller
                         'responded_at' => (string) ($data['responded_at'] ?? ''),
                     ],
                 );
+
+                if ($inviterNotification instanceof UserNotification) {
+                    $this->publishNotificationCreated($inviterNotification);
+                }
             });
 
             $freshUser = User::query()
@@ -335,7 +414,32 @@ class NotificationController extends Controller
                 'read_at' => $now,
             ])->save();
 
-            DB::afterCommit(function () use ($requesterUserId, $locked, $data, $user, $action): void {
+            $requesterNotification = null;
+            if ($requesterUserId > 0 && $requesterUserId !== (int) ($user->id ?? 0)) {
+                $taskName = (string) data_get($data, 'task_name', 'cette tâche');
+                $requesterNotification = $this->createUserNotification(
+                    userId: $requesterUserId,
+                    householdId: $householdId,
+                    type: 'task_reassignment_invite_responded',
+                    title: $isAccepted ? 'Reprise de tâche acceptée' : 'Reprise de tâche refusée',
+                    body: $isAccepted
+                        ? sprintf('%s a accepté de reprendre %s.', (string) ($user->name ?? 'Un membre'), $taskName)
+                        : sprintf('%s a refusé de reprendre %s.', (string) ($user->name ?? 'Un membre'), $taskName),
+                    data: [
+                        'household_id' => $householdId,
+                        'task_instance_id' => $instanceId,
+                        'task_name' => $taskName,
+                        'status' => (string) ($data['status'] ?? 'pending'),
+                        'action' => $action,
+                        'requester_user_id' => $requesterUserId,
+                        'responder_user_id' => (int) ($user->id ?? 0),
+                        'responder_name' => (string) ($user->name ?? 'Un membre'),
+                        'responded_at' => (string) ($data['responded_at'] ?? ''),
+                    ],
+                );
+            }
+
+            DB::afterCommit(function () use ($requesterUserId, $locked, $data, $user, $action, $requesterNotification): void {
                 $this->realtimePublisher->publishUser(
                     userId: $requesterUserId,
                     module: 'notifications',
@@ -351,6 +455,28 @@ class NotificationController extends Controller
                         'responded_at' => (string) data_get($data, 'responded_at', ''),
                     ],
                 );
+
+                if ($requesterNotification instanceof UserNotification) {
+                    $this->publishNotificationCreated($requesterNotification);
+                }
+
+                $householdId = (int) data_get($data, 'household_id', 0);
+                if ($householdId > 0) {
+                    $this->realtimePublisher->publishHousehold(
+                        householdId: $householdId,
+                        module: 'tasks',
+                        type: 'instance.reassignment_responded',
+                        payload: [
+                            'notification_id' => (int) $locked->id,
+                            'task_instance_id' => (int) data_get($data, 'task_instance_id'),
+                            'task_name' => (string) data_get($data, 'task_name', 'Tâche'),
+                            'status' => (string) data_get($data, 'status', 'pending'),
+                            'action' => $action,
+                            'responder_user_id' => (int) ($user->id ?? 0),
+                            'responder_name' => (string) ($user->name ?? 'Un membre'),
+                        ],
+                    );
+                }
             });
 
             return response()->json([
@@ -370,5 +496,39 @@ class NotificationController extends Controller
                 ],
             ]);
         });
+    }
+
+    private function createUserNotification(
+        int $userId,
+        int $householdId,
+        string $type,
+        string $title,
+        string $body,
+        array $data = []
+    ): UserNotification {
+        return UserNotification::query()->create([
+            'household_id' => $householdId,
+            'user_id' => $userId,
+            'type' => $type,
+            'title' => $title,
+            'body' => $body,
+            'data' => $data + ['household_id' => $householdId],
+        ]);
+    }
+
+    private function publishNotificationCreated(UserNotification $notification): void
+    {
+        $this->realtimePublisher->publishUser(
+            userId: (int) $notification->user_id,
+            module: 'notifications',
+            type: 'notification_created',
+            payload: [
+                'notification_id' => (int) $notification->id,
+                'household_id' => (int) $notification->household_id,
+                'type' => (string) $notification->type,
+                'title' => (string) $notification->title,
+                'body' => (string) $notification->body,
+            ],
+        );
     }
 }

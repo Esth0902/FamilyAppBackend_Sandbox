@@ -96,6 +96,9 @@ class PollNotificationScheduler
                             'status' => 'closed',
                             'closed_at' => $poll->closed_at ?? $now,
                         ]);
+                        $poll->refresh();
+                        $poll->loadMissing('household.users');
+                        $this->notificationService->notifyPollClosedTooLate($poll);
                         continue;
                     }
 
