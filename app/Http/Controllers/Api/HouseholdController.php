@@ -33,8 +33,8 @@ class HouseholdController extends Controller
 
     private const DIETARY_TAG_TYPES = ['diet', 'allergen', 'dislike', 'restriction', 'cuisine_rule'];
     private const DIETARY_TAG_SIMILARITY_THRESHOLD = 0.10;
-    private const TASK_STATUS_TODO = 'Ã  faire';
-    private const TASK_STATUS_DONE = 'rÃ©alisÃ©e';
+    private const TASK_STATUS_TODO = 'à faire';
+    private const TASK_STATUS_DONE = 'réalisée';
 
     public function __construct(
         private readonly RealtimePublisher $realtimePublisher,
@@ -386,12 +386,12 @@ class HouseholdController extends Controller
             'role' => 'sometimes|in:parent,enfant',
             'nickname' => 'sometimes|nullable|string|max:255',
         ], [
-            'email.unique' => "Cet e-mail est dÃ©jÃ  utilisÃ©.",
+            'email.unique' => "Cet e-mail est déjà utilisé.",
         ]);
 
         if (count($validated) === 0) {
             throw ValidationException::withMessages([
-                'member' => ['Aucune modification demandee.'],
+                'member' => ['Aucune modification demandée.'],
             ]);
         }
 
@@ -516,7 +516,7 @@ class HouseholdController extends Controller
 
         if ((int) $request->user()->id === (int) $member->id) {
             throw ValidationException::withMessages([
-                'member' => ['Vous ne pouvez pas vous supprimer vous-meme du foyer.'],
+                'member' => ['Vous ne pouvez pas vous supprimer vous-même du foyer.'],
             ]);
         }
 
@@ -535,7 +535,7 @@ class HouseholdController extends Controller
         });
 
         return response()->json([
-            'message' => 'Membre supprime du foyer.',
+            'message' => 'Membre supprimé du foyer.',
             'deleted_member_id' => (int) $member->id,
         ]);
     }
@@ -554,7 +554,7 @@ class HouseholdController extends Controller
 
         if (!(bool) $member->must_change_password) {
             throw ValidationException::withMessages([
-                'member' => ['Ce membre a deja change son mot de passe.'],
+                'member' => ['Ce membre a déjà changé son mot de passe.'],
             ]);
         }
 
@@ -569,7 +569,7 @@ class HouseholdController extends Controller
             ->firstOrFail();
 
         return response()->json(JsonUtf8Sanitizer::sanitize([
-            'message' => 'Nouvel acces temporaire genere.',
+            'message' => 'Nouvel accès temporaire généré.',
             'member' => $this->toHouseholdMemberPayload($freshMember),
             'generated_email' => (string) $freshMember->email,
             'generated_password' => $rawPassword,
@@ -585,7 +585,7 @@ class HouseholdController extends Controller
     {
         $user = $request->user();
         if (!$user) {
-            return response()->json(['message' => 'Non authentifie.'], 401);
+            return response()->json(['message' => 'Non authentifié.'], 401);
         }
         $household = $this->resolveCurrentHousehold($user, $request);
 
@@ -1045,7 +1045,7 @@ class HouseholdController extends Controller
             }
 
             return response()->json([
-                'message' => 'Configuration du foyer mise a jour.',
+                'message' => 'Configuration du foyer mise à jour.',
                 'household' => $household->fresh(),
                 'household_settings' => $householdSettings,
                 'meal_settings' => $mealSettings,
@@ -1090,7 +1090,7 @@ class HouseholdController extends Controller
 
             if (in_array($email, $emails, true)) {
                 throw ValidationException::withMessages([
-                    "members.$index.email" => ['Deux membres ne peuvent pas partager le meme email.'],
+                    "members.$index.email" => ['Deux membres ne peuvent pas partager le même e-mail.'],
                 ]);
             }
             $emails[] = $email;
@@ -1371,7 +1371,7 @@ class HouseholdController extends Controller
         }
 
         throw ValidationException::withMessages([
-            'modules.meals.settings.poll_day' => ['Le jour du sondage doit etre compris entre 1 et 7.'],
+            'modules.meals.settings.poll_day' => ['Le jour du sondage doit être compris entre 1 et 7.'],
         ]);
     }
 
@@ -1379,7 +1379,7 @@ class HouseholdController extends Controller
     {
         if (!is_string($value)) {
             throw ValidationException::withMessages([
-                'modules.meals.settings.poll_time' => ['L heure du sondage doit etre au format HH:MM.'],
+                'modules.meals.settings.poll_time' => ['L\'heure du sondage doit être au format HH:MM.'],
             ]);
         }
 
@@ -1388,7 +1388,7 @@ class HouseholdController extends Controller
 
         if (!$date || $date->format('H:i') !== $normalized) {
             throw ValidationException::withMessages([
-                'modules.meals.settings.poll_time' => ['L heure du sondage doit etre au format HH:MM.'],
+                'modules.meals.settings.poll_time' => ['L\'heure du sondage doit être au format HH:MM.'],
             ]);
         }
 
@@ -1806,11 +1806,11 @@ class HouseholdController extends Controller
     private function buildMemberShareText(string $name, string $email, string $rawPassword): string
     {
         return "Bonjour {$name} !\n\n"
-            . "Ton compte FamilyFlow est prÃªt.\n"
+            . "Ton compte FamilyFlow est prêt.\n"
             . "Connecte-toi avec les identifiants suivants :\n"
-            . "Email : {$email}\n"
+            . "E)mail : {$email}\n"
             . "Mot de passe temporaire : {$rawPassword}\n\n"
-            . "N'oublie pas de modifier ton mot de passe dÃ¨s la premiÃ¨re connexion.";
+            . "N'oublie pas de modifier ton mot de passe dès la première connexion.";
     }
 
     private function ensureParentCanBeRemoved(Household $household, int $memberId): void
@@ -1849,7 +1849,7 @@ class HouseholdController extends Controller
         }
 
         throw ValidationException::withMessages([
-            'household' => ['Aucun foyer trouve pour cet utilisateur.'],
+            'household' => ['Aucun foyer trouvé pour cet utilisateur.'],
         ]);
     }
 
