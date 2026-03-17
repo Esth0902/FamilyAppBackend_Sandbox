@@ -163,16 +163,18 @@ class RecipeController extends Controller
     {
         $validated = $request->validate([
             'preferences' => 'nullable|string|max:500',
+            'dietary_preferences' => 'nullable|string|max:500',
             'count' => 'nullable|integer|max:5',
             'intent' => 'nullable|string|in:ideas,specific',
         ]);
 
         $text = $validated['preferences'] ?? '';
+        $dietaryPreferences = trim((string)($validated['dietary_preferences'] ?? ''));
         $intent = $validated['intent'] ?? 'ideas';
         $count = $validated['count'] ?? 3;
 
         if ($intent === 'specific') {
-            $recipe = $this->aiService->getFullRecipeDetails($text);
+            $recipe = $this->aiService->getFullRecipeDetails($text, $dietaryPreferences);
 
             if (empty($recipe)) {
                 return response()->json(['message' => 'Impossible de générer la recette'], 422);
@@ -181,16 +183,29 @@ class RecipeController extends Controller
             return response()->json(['type' => 'single', 'data' => $recipe]);
         }
 
-        $ideas = $this->aiService->suggestMealIdeas($count, $text);
+        $ideasPrompt = trim($text);
+        if ($dietaryPreferences !== '') {
+            $ideasPrompt = $ideasPrompt === ''
+                ? $dietaryPreferences
+                : $ideasPrompt . "\n" . $dietaryPreferences;
+        }
+
+        $ideas = $this->aiService->suggestMealIdeas($count, $ideasPrompt);
 
         return response()->json(['type' => 'list', 'data' => $ideas]);
     }
 
     public function previewAiRecipe(Request $request)
     {
-        $request->validate(['title' => 'required|string|max:255']);
+        $validated = $request->validate([
+            'title' => 'required|string|max:255',
+            'dietary_preferences' => 'nullable|string|max:500',
+        ]);
 
-        $details = $this->aiService->getFullRecipeDetails($request->title);
+        $details = $this->aiService->getFullRecipeDetails(
+            (string)$validated['title'],
+            trim((string)($validated['dietary_preferences'] ?? ''))
+        );
 
         return response()->json($details);
     }

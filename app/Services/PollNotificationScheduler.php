@@ -10,7 +10,10 @@ use Illuminate\Support\Collection;
 
 class PollNotificationScheduler
 {
-    public function __construct(private readonly PollNotificationService $notificationService)
+    public function __construct(
+        private readonly PollNotificationService $notificationService,
+        private readonly HouseholdDeletionService $householdDeletionService,
+    )
     {
     }
 
@@ -19,6 +22,7 @@ class PollNotificationScheduler
         $this->dispatchWeeklyOpenPrompts();
         $this->processOpenPolls();
         $this->processClosedPolls();
+        $this->householdDeletionService->processScheduledDeletions();
     }
 
     private function dispatchWeeklyOpenPrompts(): void

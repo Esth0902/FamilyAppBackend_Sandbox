@@ -8,6 +8,7 @@ use App\Models\Household;
 use App\Models\TaskInstance;
 use App\Models\User;
 use App\Models\UserNotification;
+use App\Services\HouseholdDeletionService;
 use App\Services\RealtimePublisher;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -18,6 +19,7 @@ class NotificationController extends Controller
 {
     public function __construct(
         private readonly RealtimePublisher $realtimePublisher,
+        private readonly HouseholdDeletionService $householdDeletionService,
     ) {
     }
 
@@ -71,10 +73,36 @@ class NotificationController extends Controller
                                     ->orWhere('data->status', 'pending');
                             });
                     })
+                    ->orWhere(function ($inviteQuery): void {
+                        $inviteQuery
+                            ->where('type', HouseholdDeletionService::TYPE_APPROVAL_REQUEST)
+                            ->whereNull('read_at')
+                            ->where(function ($statusQuery): void {
+                                $statusQuery
+                                    ->whereNull('data->status')
+                                    ->orWhere('data->status', 'pending');
+                            });
+                    })
+                    ->orWhere(function ($inviteQuery): void {
+                        $inviteQuery
+                            ->where('type', HouseholdDeletionService::TYPE_CANCEL_WINDOW)
+                            ->whereNull('read_at')
+                            ->where(function ($statusQuery): void {
+                                $statusQuery
+                                    ->whereNull('data->status')
+                                    ->orWhere('data->status', 'scheduled');
+                            });
+                    })
                     ->orWhere(function ($unreadQuery) use ($now): void {
                         $unreadQuery
                             ->whereNull('read_at')
-                            ->whereNotIn('type', ['household_invite', 'task_reassignment_invite'])
+                            ->whereNotIn('type', [
+                                'household_invite',
+                                'task_reassignment_invite',
+                                HouseholdDeletionService::TYPE_APPROVAL_REQUEST,
+                                HouseholdDeletionService::TYPE_CANCEL_WINDOW,
+                                HouseholdDeletionService::TYPE_CONTROL,
+                            ])
                             ->where(function ($scheduleQuery) use ($now): void {
                                 $scheduleQuery
                                     ->whereNull('scheduled_for')
@@ -504,6 +532,62 @@ class NotificationController extends Controller
                 ],
             ]);
         });
+    }
+
+    public function respondHouseholdDeletion(Request $request, UserNotification $notification): JsonResponse
+    {
+        if ((int) $notification->user_id !== (int) $request->user()->id) {
+            return response()->json(['message' => 'Accès refusé.'], 403);
+        }
+
+        $validated = $request->validate([
+            'action' => ['required', 'in:accept,refuse,cancel'],
+        ]);
+        $action = (string) $validated['action'];
+        $type = (string) $notification->type;
+
+        if ($type === HouseholdDeletionService::TYPE_APPROVAL_REQUEST) {
+            if (!in_array($action, ['accept', 'refuse'], true)) {
+                throw ValidationException::withMessages([
+                    'action' => ['Action invalide pour cette demande.'],
+                ]);
+            }
+
+            $result = $this->householdDeletionService->respondToApproval(
+                $notification,
+                $request->user(),
+                $action
+            );
+
+            return response()->json([
+                'message' => $action === 'accept'
+                    ? 'Demande de suppression acceptée.'
+                    : 'Demande de suppression refusée.',
+                'deletion_request' => $result,
+            ]);
+        }
+
+        if ($type === HouseholdDeletionService::TYPE_CANCEL_WINDOW) {
+            if ($action !== 'cancel') {
+                throw ValidationException::withMessages([
+                    'action' => ['Action invalide pour cette demande.'],
+                ]);
+            }
+
+            $result = $this->householdDeletionService->cancelScheduledDeletion(
+                $notification,
+                $request->user()
+            );
+
+            return response()->json([
+                'message' => 'Suppression planifiée annulée.',
+                'deletion_request' => $result,
+            ]);
+        }
+
+        throw ValidationException::withMessages([
+            'notification' => ['Cette notification ne concerne pas une suppression de foyer.'],
+        ]);
     }
 
     private function createUserNotification(

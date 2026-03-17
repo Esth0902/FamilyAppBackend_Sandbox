@@ -6,7 +6,9 @@ use App\Models\BudgetSetting;
 use App\Models\Household;
 use App\Models\User;
 use App\Models\UserNotification;
+use App\Services\HouseholdDeletionService;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
+use Illuminate\Support\Carbon;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
@@ -384,6 +386,146 @@ class HouseholdMemberApiTest extends TestCase
         $this->assertNotNull($inviterNotification);
         $this->assertSame('refused', (string) data_get($inviterNotification?->data, 'status'));
         $this->assertSame((int) $invitedUser->id, (int) data_get($inviterNotification?->data, 'invited_user_id'));
+    }
+
+    public function test_parent_can_request_household_deletion_with_parent_approval_then_scheduler_deletes_household(): void
+    {
+        [$household, $parentRequester, $child] = $this->createHouseholdWithMembers('Foyer suppression');
+        $secondParent = User::factory()->create([
+            'must_change_password' => false,
+        ]);
+        $household->users()->attach($secondParent->id, [
+            'role' => User::ROLE_PARENT,
+            'nickname' => 'Parent 2',
+        ]);
+
+        Sanctum::actingAs($parentRequester);
+        $this->postJson('/api/households/delete-request')
+            ->assertOk()
+            ->assertJsonPath('deletion_request.status', 'pending_approvals')
+            ->assertJsonPath('deletion_request.approvals_required', 1);
+
+        /** @var UserNotification $approvalNotification */
+        $approvalNotification = UserNotification::query()
+            ->where('household_id', $household->id)
+            ->where('user_id', $secondParent->id)
+            ->where('type', HouseholdDeletionService::TYPE_APPROVAL_REQUEST)
+            ->latest('id')
+            ->firstOrFail();
+
+        Sanctum::actingAs($secondParent);
+        $this->postJson("/api/notifications/{$approvalNotification->id}/household-deletion-response", [
+            'action' => 'accept',
+        ])
+            ->assertOk()
+            ->assertJsonPath('deletion_request.status', 'scheduled');
+
+        $this->assertDatabaseHas('user_notifications', [
+            'household_id' => $household->id,
+            'user_id' => $parentRequester->id,
+            'type' => HouseholdDeletionService::TYPE_CANCEL_WINDOW,
+        ]);
+        $this->assertDatabaseHas('user_notifications', [
+            'household_id' => $household->id,
+            'user_id' => $secondParent->id,
+            'type' => HouseholdDeletionService::TYPE_CANCEL_WINDOW,
+        ]);
+        $this->assertDatabaseHas('user_notifications', [
+            'household_id' => $household->id,
+            'user_id' => $child->id,
+            'type' => HouseholdDeletionService::TYPE_SCHEDULED_INFO,
+        ]);
+
+        /** @var UserNotification $control */
+        $control = UserNotification::query()
+            ->where('household_id', $household->id)
+            ->where('type', HouseholdDeletionService::TYPE_CONTROL)
+            ->latest('id')
+            ->firstOrFail();
+        $controlData = is_array($control->data) ? $control->data : [];
+        $controlData['scheduled_delete_at'] = Carbon::now()->subMinute()->toIso8601String();
+        $controlData['status'] = 'scheduled';
+        $control->forceFill(['data' => $controlData])->save();
+
+        app(HouseholdDeletionService::class)->processScheduledDeletions();
+
+        $this->assertDatabaseMissing('households', [
+            'id' => $household->id,
+        ]);
+    }
+
+    public function test_parent_refusal_cancels_household_deletion_request_and_requester_can_leave(): void
+    {
+        [$household, $parentRequester] = $this->createHouseholdWithMembers('Foyer refus suppression');
+        $secondParent = User::factory()->create([
+            'must_change_password' => false,
+        ]);
+        $household->users()->attach($secondParent->id, [
+            'role' => User::ROLE_PARENT,
+            'nickname' => 'Parent 2',
+        ]);
+
+        Sanctum::actingAs($parentRequester);
+        $this->postJson('/api/households/delete-request')
+            ->assertOk()
+            ->assertJsonPath('deletion_request.status', 'pending_approvals');
+
+        /** @var UserNotification $approvalNotification */
+        $approvalNotification = UserNotification::query()
+            ->where('household_id', $household->id)
+            ->where('user_id', $secondParent->id)
+            ->where('type', HouseholdDeletionService::TYPE_APPROVAL_REQUEST)
+            ->latest('id')
+            ->firstOrFail();
+
+        Sanctum::actingAs($secondParent);
+        $this->postJson("/api/notifications/{$approvalNotification->id}/household-deletion-response", [
+            'action' => 'refuse',
+        ])
+            ->assertOk()
+            ->assertJsonPath('deletion_request.status', 'cancelled');
+
+        $this->assertDatabaseHas('user_notifications', [
+            'household_id' => $household->id,
+            'user_id' => $parentRequester->id,
+            'type' => HouseholdDeletionService::TYPE_REQUEST_REFUSED,
+        ]);
+
+        Sanctum::actingAs($parentRequester);
+        $this->postJson('/api/households/leave')
+            ->assertOk()
+            ->assertJsonPath('left_household_id', $household->id);
+
+        $this->assertDatabaseMissing('household_user', [
+            'household_id' => $household->id,
+            'user_id' => $parentRequester->id,
+        ]);
+    }
+
+    public function test_single_parent_request_schedules_household_deletion_without_parent_approval(): void
+    {
+        [$household, $parent, $child] = $this->createHouseholdWithMembers('Foyer parent unique');
+        Sanctum::actingAs($parent);
+
+        $this->postJson('/api/households/delete-request')
+            ->assertOk()
+            ->assertJsonPath('deletion_request.status', 'scheduled')
+            ->assertJsonPath('deletion_request.approvals_required', 0);
+
+        $this->assertDatabaseMissing('user_notifications', [
+            'household_id' => $household->id,
+            'type' => HouseholdDeletionService::TYPE_APPROVAL_REQUEST,
+        ]);
+        $this->assertDatabaseHas('user_notifications', [
+            'household_id' => $household->id,
+            'user_id' => $parent->id,
+            'type' => HouseholdDeletionService::TYPE_CANCEL_WINDOW,
+        ]);
+        $this->assertDatabaseHas('user_notifications', [
+            'household_id' => $household->id,
+            'user_id' => $child->id,
+            'type' => HouseholdDeletionService::TYPE_SCHEDULED_INFO,
+        ]);
     }
 
     public function test_child_cannot_update_household_config_or_create_dietary_tags(): void

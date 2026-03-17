@@ -27,7 +27,7 @@ class AiService
 
     public function suggestMealIdeas(int $count = 5, string $preferences = '')
     {
-        $preferences = $this->sanitizeUserInput($preferences);
+        $preferences = $this->sanitizeUserInput($preferences, 500);
 
         $systemPrompt = $this->getSystemPrompt(
             "Tu es un assistant culinaire.
@@ -49,9 +49,10 @@ RÈGLES :
         return $this->executeRequest($systemPrompt, $userPrompt, expected: 'list', count: $count);
     }
 
-    public function getFullRecipeDetails(string $title)
+    public function getFullRecipeDetails(string $title, string $preferences = '')
     {
         $title = $this->sanitizeUserInput($title);
+        $preferences = $this->sanitizeUserInput($preferences, 500);
 
         $systemPrompt = $this->getSystemPrompt(
             "Tu es un expert en recettes et en gestion de courses.
@@ -72,7 +73,9 @@ RÈGLES :
 "
         );
 
-        $userPrompt = "Donne-moi la recette complète pour : {$title}.";
+        $userPrompt = empty($preferences)
+            ? "Donne-moi la recette complète pour : {$title}."
+            : "Donne-moi la recette complète pour : {$title}. Contraintes et préférences à respecter : {$preferences}.";
 
         return $this->executeRequest($systemPrompt, $userPrompt, expected: 'object');
     }

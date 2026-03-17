@@ -14,6 +14,7 @@ use App\Models\MealSetting;
 use App\Models\TaskInstance;
 use App\Models\TaskTemplate;
 use App\Support\JsonUtf8Sanitizer;
+use App\Services\HouseholdDeletionService;
 use App\Services\RealtimePublisher;
 use App\Models\User;
 use App\Models\UserNotification;
@@ -38,6 +39,7 @@ class HouseholdController extends Controller
 
     public function __construct(
         private readonly RealtimePublisher $realtimePublisher,
+        private readonly HouseholdDeletionService $householdDeletionService,
     ) {
     }
 
@@ -581,6 +583,63 @@ class HouseholdController extends Controller
         ]));
     }
 
+    public function requestDeletion(Request $request)
+    {
+        [$household, $role] = $this->resolveHouseholdWithRole($request);
+        $this->ensureParentRole($role);
+
+        $result = $this->householdDeletionService->requestDeletion($household, $request->user());
+        $scheduledFor = data_get($result, 'scheduled_for');
+
+        return response()->json(JsonUtf8Sanitizer::sanitize([
+            'message' => $scheduledFor
+                ? 'La suppression du foyer est planifiée dans 24h.'
+                : 'La demande de suppression a été envoyée aux autres parents.',
+            'deletion_request' => [
+                'request_id' => (string) data_get($result, 'request_id', ''),
+                'status' => (string) data_get($result, 'status', 'pending_approvals'),
+                'scheduled_for' => is_string($scheduledFor) ? $scheduledFor : null,
+                'approvals_required' => (int) data_get($result, 'approvals_required', 0),
+                'approvals_received' => (int) data_get($result, 'approvals_received', 0),
+            ],
+        ]));
+    }
+
+    public function leave(Request $request)
+    {
+        [$household, $role] = $this->resolveHouseholdWithRole($request);
+        $this->ensureParentRole($role);
+        $member = $request->user();
+
+        $isMember = $household->users()
+            ->where('users.id', (int) $member->id)
+            ->exists();
+        if (!$isMember) {
+            abort(404, 'Membre introuvable pour ce foyer.');
+        }
+
+        $this->ensureParentCanBeRemoved($household, (int) $member->id);
+
+        DB::transaction(function () use ($household, $member): void {
+            $household->users()->detach((int) $member->id);
+            BudgetSetting::query()
+                ->where('household_id', (int) $household->id)
+                ->where('user_id', (int) $member->id)
+                ->delete();
+        });
+
+        $freshUser = User::query()
+            ->whereKey($member->id)
+            ->with('households')
+            ->firstOrFail();
+
+        return response()->json(JsonUtf8Sanitizer::sanitize([
+            'message' => 'Vous avez quitté ce foyer.',
+            'left_household_id' => (int) $household->id,
+            'user' => $freshUser,
+        ]));
+    }
+
     public function dashboard(Request $request)
     {
         $user = $request->user();
@@ -946,6 +1005,7 @@ class HouseholdController extends Controller
     {
         [$household, $role] = $this->resolveHouseholdWithRole($request);
         $this->ensureParentRole($role);
+        $updatedByUserId = (int) ($request->user()?->id ?? 0);
 
         $validated = $request->validate([
             'household_name' => 'nullable|string|max:255',
@@ -1002,7 +1062,7 @@ class HouseholdController extends Controller
         $modules = $this->normalizeModuleConfiguration($validated);
         $this->validateTasksConfiguration($modules['tasks']);
 
-        return DB::transaction(function () use ($household, $householdName, $modules) {
+        return DB::transaction(function () use ($household, $householdName, $modules, $updatedByUserId) {
             $household->update(['name' => $householdName]);
 
             $householdSettings = HouseholdSetting::updateOrCreate(
@@ -1044,6 +1104,31 @@ class HouseholdController extends Controller
                 );
             }
 
+            $enabledModules = [
+                'meals' => (bool) $modules['meals']['enabled'],
+                'tasks' => (bool) $modules['tasks']['enabled'],
+                'budget' => (bool) $modules['budget']['enabled'],
+                'calendar' => (bool) $modules['calendar']['enabled'],
+            ];
+
+            DB::afterCommit(function () use ($household, $householdName, $enabledModules, $updatedByUserId): void {
+                $this->publishHouseholdRealtime(
+                    householdId: (int) $household->id,
+                    type: 'config_updated',
+                    payload: [
+                        'household_name' => (string) $householdName,
+                        'modules' => [
+                            'meals' => ['enabled' => (bool) $enabledModules['meals']],
+                            'tasks' => ['enabled' => (bool) $enabledModules['tasks']],
+                            'budget' => ['enabled' => (bool) $enabledModules['budget']],
+                            'calendar' => ['enabled' => (bool) $enabledModules['calendar']],
+                        ],
+                        'updated_by_user_id' => $updatedByUserId,
+                        'updated_at' => now()->toIso8601String(),
+                    ],
+                );
+            });
+
             return response()->json([
                 'message' => 'Configuration du foyer mise à jour.',
                 'household' => $household->fresh(),
@@ -1052,6 +1137,16 @@ class HouseholdController extends Controller
                 'updated_task_templates' => $updatedTaskTemplates,
             ]);
         });
+    }
+
+    private function publishHouseholdRealtime(int $householdId, string $type, array $payload = []): void
+    {
+        $this->realtimePublisher->publishHousehold(
+            householdId: $householdId,
+            module: 'household',
+            type: $type,
+            payload: $payload + ['household_id' => $householdId],
+        );
     }
 
     private function normalizeMembers(array $validated): array

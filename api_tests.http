@@ -39,7 +39,7 @@ Accept: {{contentType}}
 
 > {%
     client.global.set("auth_token", response.body.token);
-    client.log("Token capturÃ© : " + response.body.token);
+    client.log("Token capturé : " + response.body.token);
 %}
 
 ### Test de login insensible a la casse sur email
@@ -114,7 +114,7 @@ Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 X-Household-Id: {{active_household_id}}
 
-### CrÃ©er un mÃ©nage (capture household_id)
+### Créer un ménage (capture household_id)
 POST {{baseUrl}}/api/households
 Content-Type: {{contentType}}
 Accept: {{contentType}}
@@ -148,6 +148,7 @@ Authorization: Bearer {{auth_token}}
 
 {
   "preferences": "Végétarien, cuisine italienne",
+  "dietary_preferences": "Tags alimentaires du foyer: sans porc, sans lactose",
   "count": 3,
   "intent": "ideas"
 }
@@ -160,17 +161,19 @@ Authorization: Bearer {{auth_token}}
 
 {
   "preferences": "Lasagnes aux légumes",
+  "dietary_preferences": "Tags alimentaires du foyer: sans porc, sans lactose",
   "intent": "specific"
 }
 
-### 6) Preview recette (endpoint dÃ©diÃ©)
+### 6) Preview recette (endpoint dédié)
 POST {{baseUrl}}/api/recipes/preview-ai
 Content-Type: {{contentType}}
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
 {
-  "title": "Lasagnes aux légumes"
+  "title": "Lasagnes aux légumes",
+  "dietary_preferences": "Tags alimentaires du foyer: sans porc, sans lactose"
 }
 
 ### 7) AI Store (exemple valide AVEC type + category)
@@ -187,7 +190,7 @@ Authorization: Bearer {{auth_token}}
   "title": "Lasagnes aux légumes",
   "type": "plat principal",
   "description": "Un plat italien classique revisité avec des légumes pour une version végétarienne délicieuse.",
-  "instructions": "étape 1 : Préchauffez le four Ã  180 °C. étape 2 : ...",
+  "instructions": "étape 1 : Préchauffez le four à 180 °C. étape 2 : ...",
   "ingredients": [
     { "name": "pâtes à lasagnes", "quantity": 250, "unit": "g", "category": "épicerie salée" },
     { "name": "oignon", "quantity": 1, "unit": "unité", "category": "fruits et légumes" },
@@ -288,8 +291,8 @@ Authorization: Bearer {{auth_token}}
   "description": "update",
   "instructions": "update",
   "ingredients": [
-    { "name": "oignon", "quantity": 1, "unit": "unitÃ©", "category": "fruits et lÃ©gumes" },
-    { "name": "ricotta", "quantity": 250, "unit": "g", "category": "crÃ¨merie" }
+    { "name": "oignon", "quantity": 1, "unit": "unité", "category": "fruits et légumes" },
+    { "name": "ricotta", "quantity": 250, "unit": "g", "category": "crèmerie" }
   ]
 }
 
@@ -390,7 +393,7 @@ Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
 ### Creer un nouveau dietary tag (avec anti-doublon embedding)
-# Endpoint rÃ©servÃ© au rÃ´le parent (403 pour un enfant)
+# Endpoint réservé au rôle parent (403 pour un enfant)
 POST {{baseUrl}}/api/households/dietary-tags
 Content-Type: {{contentType}}
 Accept: {{contentType}}
@@ -402,7 +405,11 @@ Authorization: Bearer {{auth_token}}
 }
 
 ### Mettre a jour la configuration du foyer courant
-# Endpoint rÃ©servÃ© au rÃ´le parent (403 pour un enfant)
+# Endpoint réservé au rôle parent (403 pour un enfant)
+# Realtime:
+# - Diffuse sur private-household.{household_id}
+# - Event: household.realtime
+# - Payload: { module: "household", type: "config_updated", payload.modules.<module>.enabled }
 PATCH {{baseUrl}}/api/households/config
 Content-Type: {{contentType}}
 Accept: {{contentType}}
@@ -506,7 +513,7 @@ Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
 {
-  "title": "Sondage semaine test (corrigÃ©)",
+  "title": "Sondage semaine test (corrigé)",
   "recipe_ids": [1, 2],
   "planning_start_date": "2026-02-24",
   "planning_end_date": "2026-03-02",
@@ -567,12 +574,12 @@ GET {{baseUrl}}/api/meal-polls/history
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
-### Dashboard - Vue complÃ¨te sondages + tÃ¢ches + recettes prÃ©fÃ©rÃ©es
+### Dashboard - Vue complète sondages + tâches + recettes préférées
 GET {{baseUrl}}/api/dashboard
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
-# RÃ©ponse attendue:
+# Réponse attendue:
 # - polls_open / polls_closed / polls
 # - tasks_summary: { enabled, range: { from, to }, todo_count, done_count, validated_count }
 
@@ -590,21 +597,21 @@ X-Household-Id: {{active_household_id}}
   }
 %}
 
-# RÃ©ponse attendue (champs utiles pour le frontend temps rÃ©el):
+# Réponse attendue (champs utiles pour le frontend temps réel):
 # - notifications[].household_id (null|number)
 # - notifications[].sent_at (ISO 8601|null)
 # - notifications[].read_at (ISO 8601|null)
 # - notifications[].data.status (pending|accepted|refused) pour les demandes actionnables
-# - notifications[].data.household_name (string) pour les notifications de tÃ¢ches multi-foyers
+# - notifications[].data.household_name (string) pour les notifications de tâches multi-foyers
 
 ### Notifications - Recuperer celles en attente sur tous les foyers du user
 GET {{baseUrl}}/api/notifications/pending?all_households=1
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
-# RÃ©ponse attendue:
-# - mÃªme format que /notifications/pending
-# - inclut les notifications des autres foyers oÃ¹ l'utilisateur est membre
+# Réponse attendue:
+# - même format que /notifications/pending
+# - inclut les notifications des autres foyers où l'utilisateur est membre
 
 ### Notifications - Marquer lue
 POST {{baseUrl}}/api/notifications/{{notification_id}}/read
@@ -642,19 +649,19 @@ Authorization: Bearer {{auth_token}}
   }
 %}
 
-### Shopping Lists - DÃ©tail d'une liste
-# RÃ©ponse attendue:
-# - list.items: Ã©lÃ©ments de la liste
-# - list.items[].created_by (id, name): membre qui a ajoutÃ© l'Ã©lÃ©ment
-# - planned_recipe_suggestions: repas planifiÃ©s (rÃ©sultat sondage/meal plan) + ingrÃ©dients dÃ©taillÃ©s
+### Shopping Lists - Détail d'une liste
+# Réponse attendue:
+# - list.items: éléments de la liste
+# - list.items[].created_by (id, name): membre qui a ajouté l'élément
+# - planned_recipe_suggestions: repas planifiés (résultat sondage/meal plan) + ingrédients détaillés
 GET {{baseUrl}}/api/shopping-lists/{{shopping_list_id}}
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
-### Shopping Lists - Ajouter un ingrÃ©dient manuel
-# RÃ¨gle d'accÃ¨s:
+### Shopping Lists - Ajouter un ingrédient manuel
+# Règle d'accès:
 # - parent: peut ajouter manuel + non-manuel
-# - enfant: peut ajouter uniquement un Ã©lÃ©ment manuel (is_manual_addition=true implicite)
+# - enfant: peut ajouter uniquement un élément manuel (is_manual_addition=true implicite)
 # - end_date est optionnelle pour les taches ponctuelles et genere une instance par jour
 POST {{baseUrl}}/api/shopping-lists/{{shopping_list_id}}/items
 Content-Type: {{contentType}}
@@ -769,10 +776,10 @@ Authorization: Bearer {{auth_token}}
   "inter_household_week_start": "2026-03-09"
 }
 
-### Tasks - CrÃ©er une instance (parent ou enfant)
-# RÃ¨gle:
-# - parent: peut attribuer Ã  n'importe quel membre du foyer via user_id
-# - enfant: ne peut s'attribuer qu'Ã  lui-mÃªme (mÃªme si user_id est envoyÃ©)
+### Tasks - Créer une instance (parent ou enfant)
+# Règle:
+# - parent: peut attribuer à n'importe quel membre du foyer via user_id
+# - enfant: ne peut s'attribuer qu'à lui-même (même si user_id est envoyé)
 # - end_date est optionnelle pour les taches ponctuelles et genere une instance par jour
 POST {{baseUrl}}/api/tasks/instances
 Content-Type: {{contentType}}
@@ -800,7 +807,7 @@ Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
 {
-  "status": "rÃ©alisÃ©e"
+  "status": "réalisée"
 }
 
 ### Tasks - Valider une tache realisee (parent)
@@ -808,9 +815,9 @@ POST {{baseUrl}}/api/tasks/instances/{{task_instance_id}}/validate
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
-# Temps rÃ©el attendu:
-# - channel household: module "tasks" (template/instance crÃ©Ã©e, mise Ã  jour, validation, rÃ©attribution)
-# - channel user: module "notifications" type "notification_created" pour les membres concernÃ©s
+# Temps réel attendu:
+# - channel household: module "tasks" (template/instance créée, mise à jour, validation, réattribution)
+# - channel user: module "notifications" type "notification_created" pour les membres concernés
 #   (notamment "task_routine_assigned" a la creation d une routine)
 
 ### Tasks - Exemple template multi-assignation + bornes de routine
@@ -1012,7 +1019,7 @@ DELETE {{baseUrl}}/api/calendar/meal-plan/{{calendar_meal_plan_id}}
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
-# Temps rÃ©el attendu:
+# Temps réel attendu:
 # - channel household: module "calendar" (event.created|updated|deleted, meal_plan.created|updated|deleted)
 
 ### Calendar - Supprimer un evenement
@@ -1021,17 +1028,17 @@ Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
 
-### Recettes globales - RÃ©cupÃ©rer toutes les recettes visibles
+### Recettes globales - Récupérer toutes les recettes visibles
 GET {{baseUrl}}/api/recipes?scope=all
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
-### Recettes globales - RÃ©cupÃ©rer uniquement Mes recettes
+### Recettes globales - Récupérer uniquement Mes recettes
 GET {{baseUrl}}/api/recipes?scope=mine
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
-### Recettes globales - Ajouter une recette globale Ã  Mes recettes
+### Recettes globales - Ajouter une recette globale à Mes recettes
 POST {{baseUrl}}/api/recipes/{{recipe_id}}/save
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
@@ -1129,9 +1136,9 @@ Authorization: Bearer {{auth_token}}
   "comment": "Demande reportee a la prochaine periode"
 }
 
-# Temps rÃ©el attendu:
+# Temps réel attendu:
 # - channel household: module "budget" (settings, paiements, avances)
-# - channel user: module "notifications" type "notification_created" (enfant/parents concernÃ©s)
+# - channel user: module "notifications" type "notification_created" (enfant/parents concernés)
 
 ### Members - Lister les membres du foyer actif
 GET {{baseUrl}}/api/household/members
@@ -1239,3 +1246,51 @@ Authorization: Bearer {{auth_token}}
 # Attendu:
 # - La notification household_invite passe en status refused + read_at renseigne
 # - Une nouvelle notification de type household_invite_responded est creee pour l'utilisateur invitant
+
+### Foyer - Demander la suppression du foyer actif
+# Si plusieurs parents: des notifications de validation sont envoyées aux autres parents.
+# Si parent unique: la suppression est planifiée directement dans 24h.
+POST {{baseUrl}}/api/households/delete-request
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+X-Household-Id: {{active_household_id}}
+
+### Notifications - Répondre à une demande de suppression de foyer (parent)
+# notification_id: type household_deletion_approval_request
+POST {{baseUrl}}/api/notifications/{{notification_id}}/household-deletion-response
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "action": "accept"
+}
+
+### Notifications - Refuser une demande de suppression de foyer (parent)
+# notification_id: type household_deletion_approval_request
+POST {{baseUrl}}/api/notifications/{{notification_id}}/household-deletion-response
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "action": "refuse"
+}
+
+### Notifications - Annuler une suppression de foyer planifiée (parent)
+# notification_id: type household_deletion_cancel_window
+POST {{baseUrl}}/api/notifications/{{notification_id}}/household-deletion-response
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "action": "cancel"
+}
+
+### Foyer - Quitter le foyer actif (parent, seulement si un autre parent reste)
+POST {{baseUrl}}/api/households/leave
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+X-Household-Id: {{active_household_id}}
+

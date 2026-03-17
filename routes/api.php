@@ -49,6 +49,8 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'must.change.password'])->gro
     Route::patch('/household/members/{member}', [HouseholdController::class, 'updateMember']);
     Route::delete('/household/members/{member}', [HouseholdController::class, 'deleteMember']);
     Route::post('/household/members/{member}/temporary-access', [HouseholdController::class, 'refreshMemberTemporaryAccess']);
+    Route::post('/households/delete-request', [HouseholdController::class, 'requestDeletion']);
+    Route::post('/households/leave', [HouseholdController::class, 'leave']);
     Route::get('/dashboard', [HouseholdController::class, 'dashboard']);
 
     // Recipes - IA (custom endpoints)
@@ -97,6 +99,7 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'must.change.password'])->gro
     Route::post('/notifications/{notification}/read', [NotificationController::class, 'read']);
     Route::post('/notifications/{notification}/household-invite-response', [NotificationController::class, 'respondHouseholdInvite']);
     Route::post('/notifications/{notification}/task-reassignment-response', [NotificationController::class, 'respondTaskReassignmentInvite']);
+    Route::post('/notifications/{notification}/household-deletion-response', [NotificationController::class, 'respondHouseholdDeletion']);
 
     // Shopping Lists
     Route::get('/shopping-lists', [ShoppingListController::class, 'index']);
