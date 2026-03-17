@@ -1097,6 +1097,44 @@ Authorization: Bearer {{auth_token}}
   "max_advance_amount": 12
 }
 
+### Budget - Parent attribue un bonus ou une pénalité à un enfant
+POST {{baseUrl}}/api/budget/adjustments
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "user_id": {{budget_child_id}},
+  "type": "bonus",
+  "amount": 3.5,
+  "comment": "Coup de main exceptionnel cette semaine"
+}
+
+> {%
+  const tx = response.body?.transaction;
+  if (tx?.id) {
+    client.global.set('budget_adjustment_id', tx.id);
+    client.log('budget_adjustment_id capture: ' + tx.id);
+  }
+%}
+
+### Budget - Parent modifie un bonus ou une pénalité existant(e)
+PATCH {{baseUrl}}/api/budget/adjustments/{{budget_adjustment_id}}
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "type": "penalty",
+  "amount": 2,
+  "comment": "Mise à jour de l'ajustement"
+}
+
+### Budget - Parent supprime un bonus ou une pénalité existant(e)
+DELETE {{baseUrl}}/api/budget/adjustments/{{budget_adjustment_id}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
 ### Budget - Parent valide un paiement (montant adaptable)
 POST {{baseUrl}}/api/budget/payments
 Content-Type: {{contentType}}
@@ -1107,6 +1145,17 @@ Authorization: Bearer {{auth_token}}
   "user_id": {{budget_child_id}},
   "amount": 22.5,
   "comment": "Paiement valide avec ajustement cette semaine"
+}
+
+### Budget - Parent reporte un solde négatif au prochain budget
+POST {{baseUrl}}/api/budget/payments
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "user_id": {{budget_child_id}},
+  "action": "carry_negative"
 }
 
 ### Budget - Enfant demande une avance (justification obligatoire)
@@ -1135,7 +1184,7 @@ Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
 {
-  "status": "approuvé",
+  "status": "approved",
   "amount": 6.5,
   "comment": "Montant ajuste apres verification"
 }
@@ -1149,6 +1198,51 @@ Authorization: Bearer {{auth_token}}
 {
   "status": "rejected",
   "comment": "Demande reportee a la prochaine periode"
+}
+
+### Budget - Enfant demande un remboursement (montant + justification)
+POST {{baseUrl}}/api/budget/reimbursements
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "amount": 14.5,
+  "comment": "J'ai fait les courses pour le repas de dimanche"
+}
+
+> {%
+  const transaction = response.body?.transaction;
+  if (transaction?.id) {
+    client.global.set('budget_reimbursement_request_id', transaction.id);
+    client.log('budget_reimbursement_request_id cree: ' + transaction.id);
+  }
+%}
+
+### Budget - Parent approuve un remboursement et l'integre au prochain paiement
+POST {{baseUrl}}/api/budget/advances/{{budget_reimbursement_request_id}}/review
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "status": "approved",
+  "amount": 14.5,
+  "payout_mode": "integrated",
+  "comment": "Integre au paiement de la periode"
+}
+
+### Budget - Parent approuve un remboursement et le paie tout de suite
+POST {{baseUrl}}/api/budget/advances/{{budget_reimbursement_request_id}}/review
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "status": "approved",
+  "amount": 14.5,
+  "payout_mode": "immediate",
+  "comment": "Remboursement effectue immediatement"
 }
 
 # Temps réel attendu:
