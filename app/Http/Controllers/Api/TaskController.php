@@ -45,6 +45,7 @@ class TaskController extends Controller
         $tasksEnabled = $this->isTasksModuleEnabled($household);
         $members = $this->resolveHouseholdMembers($household);
         $alternatingCustody = $this->resolveAlternatingCustodySettings($household);
+        $interHouseholdWeekStartDay = $this->resolveInterHouseholdWeekStartDay($alternatingCustody);
 
         $templates = TaskTemplate::query()
             ->where('household_id', $household->id)
@@ -53,7 +54,15 @@ class TaskController extends Controller
             ->get();
 
         if ($tasksEnabled) {
-            $this->ensureRecurringInstances($templates, $members, $fromDate, $toDate, $alternatingCustody);
+            $this->ensureRecurringInstances(
+                $templates,
+                $members,
+                $fromDate,
+                $toDate,
+                $alternatingCustody,
+                (int) $household->id,
+                $interHouseholdWeekStartDay
+            );
         }
 
         $instances = TaskInstance::query()
@@ -240,9 +249,12 @@ class TaskController extends Controller
         }
 
         $isInterHouseholdAlternating = (bool) ($validated['is_inter_household_alternating'] ?? false);
+        $alternatingCustody = $this->resolveAlternatingCustodySettings($household);
+        $interHouseholdWeekStartDay = $this->resolveInterHouseholdWeekStartDay($alternatingCustody);
         $interHouseholdWeekStart = $this->resolveInterHouseholdWeekStart(
             $isInterHouseholdAlternating,
-            $validated['inter_household_week_start'] ?? null
+            $validated['inter_household_week_start'] ?? null,
+            $interHouseholdWeekStartDay
         );
 
         $template = TaskTemplate::query()->create([
@@ -486,13 +498,16 @@ class TaskController extends Controller
             array_key_exists('is_inter_household_alternating', $validated)
             || array_key_exists('inter_household_week_start', $validated)
         ) {
+            $alternatingCustody = $this->resolveAlternatingCustodySettings($household);
+            $interHouseholdWeekStartDay = $this->resolveInterHouseholdWeekStartDay($alternatingCustody);
             $isInterHouseholdAlternating = (bool) ($updates['is_inter_household_alternating'] ?? $template->is_inter_household_alternating);
             $rawInterHouseholdWeekStart = array_key_exists('inter_household_week_start', $updates)
                 ? $updates['inter_household_week_start']
                 : optional($template->inter_household_week_start)->toDateString();
             $updates['inter_household_week_start'] = $this->resolveInterHouseholdWeekStart(
                 $isInterHouseholdAlternating,
-                $rawInterHouseholdWeekStart
+                $rawInterHouseholdWeekStart,
+                $interHouseholdWeekStartDay
             );
             $updates['is_inter_household_alternating'] = $isInterHouseholdAlternating;
         }
@@ -1464,29 +1479,80 @@ class TaskController extends Controller
         return abs($weeksFromHome) % 2 === 0;
     }
 
-        private function ensureRecurringInstances(
+    private function ensureRecurringInstances(
         Collection $templates,
         Collection $members,
         Carbon $fromDate,
         Carbon $toDate,
-        array $alternatingCustody
+        array $alternatingCustody,
+        int $householdId,
+        int $interHouseholdWeekStartDay
     ): void
     {
         if ($members->isEmpty() || $templates->isEmpty()) {
             return;
         }
 
-        $acceptedReassignmentCache = [];
+        $templateIds = $templates
+            ->map(static fn(TaskTemplate $template): int => (int) $template->id)
+            ->filter(static fn(int $id): bool => $id > 0)
+            ->values()
+            ->all();
+
+        if (count($templateIds) === 0) {
+            return;
+        }
+
+        $periodDays = collect(CarbonPeriod::create($fromDate->copy(), '1 day', $toDate->copy()))
+            ->map(static fn(Carbon $day): Carbon => $day->copy()->startOfDay())
+            ->values();
+
+        if ($periodDays->isEmpty()) {
+            return;
+        }
+
+        $existingInstances = TaskInstance::query()
+            ->whereIn('task_template_id', $templateIds)
+            ->whereBetween('due_date', [$fromDate->toDateString(), $toDate->toDateString()])
+            ->orderBy('task_template_id')
+            ->orderBy('due_date')
+            ->orderBy('id')
+            ->get([
+                'id',
+                'task_template_id',
+                'user_id',
+                'due_date',
+                'status',
+                'validated_by_parent',
+            ]);
+
+        $instancesByTemplateDate = [];
+        $existingInstanceIds = [];
+
+        foreach ($existingInstances as $existingInstance) {
+            $existingDate = optional($existingInstance->due_date)->toDateString();
+            if (!is_string($existingDate) || $existingDate === '') {
+                continue;
+            }
+
+            $instanceKey = $this->buildTemplateDateKey((int) $existingInstance->task_template_id, $existingDate);
+            if (!array_key_exists($instanceKey, $instancesByTemplateDate)) {
+                $instancesByTemplateDate[$instanceKey] = $existingInstance;
+            }
+
+            $existingInstanceIds[] = (int) $existingInstance->id;
+        }
+
+        $acceptedReassignmentCache = $this->buildAcceptedReassignmentCache($existingInstanceIds, $householdId);
 
         foreach ($templates as $template) {
             if ((string) $template->recurrence === 'once') {
                 continue;
             }
 
-            $period = CarbonPeriod::create($fromDate->copy(), '1 day', $toDate->copy());
-            foreach ($period as $day) {
+            foreach ($periodDays as $day) {
                 $date = $day->copy()->startOfDay();
-                if (!$this->templateAppliesToDate($template, $date)) {
+                if (!$this->templateAppliesToDate($template, $date, $interHouseholdWeekStartDay)) {
                     continue;
                 }
 
@@ -1513,11 +1579,9 @@ class TaskController extends Controller
                     continue;
                 }
 
-                $existing = TaskInstance::query()
-                    ->where('task_template_id', (int) $template->id)
-                    ->whereDate('due_date', $date->toDateString())
-                    ->orderBy('id')
-                    ->first();
+                $dateString = $date->toDateString();
+                $instanceKey = $this->buildTemplateDateKey((int) $template->id, $dateString);
+                $existing = $instancesByTemplateDate[$instanceKey] ?? null;
 
                 if ($existing) {
                     if ($this->instanceHasAcceptedReassignment((int) $existing->id, $acceptedReassignmentCache)) {
@@ -1542,13 +1606,59 @@ class TaskController extends Controller
                 $created = TaskInstance::query()->create([
                     'task_template_id' => (int) $template->id,
                     'user_id' => $primaryAssigneeId,
-                    'due_date' => $date->toDateString(),
+                    'due_date' => $dateString,
                     'status' => self::STATUS_TODO,
                     'validated_by_parent' => false,
                 ]);
                 $this->syncInstanceAssignees($created, $filteredAssigneeIds);
+                $instancesByTemplateDate[$instanceKey] = $created;
+                $acceptedReassignmentCache[(int) $created->id] = false;
             }
         }
+    }
+
+    private function buildTemplateDateKey(int $templateId, string $date): string
+    {
+        return $templateId . '|' . $date;
+    }
+
+    /**
+     * @param  array<int, int>  $instanceIds
+     * @return array<int, bool>
+     */
+    private function buildAcceptedReassignmentCache(array $instanceIds, int $householdId): array
+    {
+        $normalizedInstanceIds = collect($instanceIds)
+            ->map(static fn(mixed $id): int => (int) $id)
+            ->filter(static fn(int $id): bool => $id > 0)
+            ->unique()
+            ->values()
+            ->all();
+
+        if (count($normalizedInstanceIds) === 0 || $householdId <= 0) {
+            return [];
+        }
+
+        $cache = [];
+        foreach ($normalizedInstanceIds as $instanceId) {
+            $cache[$instanceId] = false;
+        }
+
+        $notifications = UserNotification::query()
+            ->where('household_id', $householdId)
+            ->where('type', 'task_reassignment_invite')
+            ->where('data->status', 'accepted')
+            ->get(['data']);
+
+        foreach ($notifications as $notification) {
+            $notificationData = is_array($notification->data) ? $notification->data : [];
+            $instanceId = (int) ($notificationData['task_instance_id'] ?? 0);
+            if ($instanceId > 0 && array_key_exists($instanceId, $cache)) {
+                $cache[$instanceId] = true;
+            }
+        }
+
+        return $cache;
     }
 
     /**
@@ -1573,7 +1683,11 @@ class TaskController extends Controller
         return (bool) $cache[$instanceId];
     }
 
-    private function templateAppliesToDate(TaskTemplate $template, Carbon $date): bool
+    private function templateAppliesToDate(
+        TaskTemplate $template,
+        Carbon $date,
+        int $interHouseholdWeekStartDay
+    ): bool
     {
         $anchor = $this->resolveTemplateAnchorDate($template, $date);
         $startDate = $template->start_date
@@ -1593,7 +1707,7 @@ class TaskController extends Controller
             return false;
         }
 
-        if (!$this->isDateInInterHouseholdAlternationWeek($template, $date, $anchor)) {
+        if (!$this->isDateInInterHouseholdAlternationWeek($template, $date, $anchor, $interHouseholdWeekStartDay)) {
             return false;
         }
 
@@ -1621,16 +1735,23 @@ class TaskController extends Controller
         return false;
     }
 
-    private function isDateInInterHouseholdAlternationWeek(TaskTemplate $template, Carbon $date, Carbon $anchor): bool
+    private function isDateInInterHouseholdAlternationWeek(
+        TaskTemplate $template,
+        Carbon $date,
+        Carbon $anchor,
+        int $interHouseholdWeekStartDay
+    ): bool
     {
         if (!(bool) ($template->is_inter_household_alternating ?? false)) {
             return true;
         }
 
-        $alternationStart = $template->inter_household_week_start
-            ? Carbon::parse($template->inter_household_week_start)->startOfWeek(Carbon::MONDAY)
-            : $anchor->copy()->startOfWeek(Carbon::MONDAY);
-        $targetWeekStart = $date->copy()->startOfWeek(Carbon::MONDAY);
+        $weekStartDay = $this->normalizeIsoWeekDay($interHouseholdWeekStartDay, 1);
+        $alternationStartBase = $template->inter_household_week_start
+            ? Carbon::parse($template->inter_household_week_start)->startOfDay()
+            : $anchor->copy()->startOfDay();
+        $alternationStart = $this->startOfCustomWeek($alternationStartBase, $weekStartDay);
+        $targetWeekStart = $this->startOfCustomWeek($date->copy()->startOfDay(), $weekStartDay);
         $weeksFromStart = (int) $alternationStart->diffInWeeks($targetWeekStart, false);
 
         return abs($weeksFromStart) % 2 === 0;
@@ -1764,7 +1885,11 @@ class TaskController extends Controller
         return $fallbackDate->copy()->startOfDay();
     }
 
-    private function resolveInterHouseholdWeekStart(bool $isEnabled, mixed $rawWeekStart): ?string
+    private function resolveInterHouseholdWeekStart(
+        bool $isEnabled,
+        mixed $rawWeekStart,
+        int $weekStartDay
+    ): ?string
     {
         if (!$isEnabled) {
             return null;
@@ -1773,10 +1898,18 @@ class TaskController extends Controller
         $startDate = is_string($rawWeekStart) && trim($rawWeekStart) !== ''
             ? Carbon::createFromFormat('Y-m-d', trim($rawWeekStart))->startOfDay()
             : now()->startOfDay();
+        $normalizedWeekStartDay = $this->normalizeIsoWeekDay($weekStartDay, 1);
 
-        return $startDate
-            ->startOfWeek(Carbon::MONDAY)
-            ->toDateString();
+        return $this->startOfCustomWeek($startDate, $normalizedWeekStartDay)->toDateString();
+    }
+
+    private function resolveInterHouseholdWeekStartDay(array $alternatingCustody): int
+    {
+        if (!(bool) ($alternatingCustody['enabled'] ?? false)) {
+            return 1;
+        }
+
+        return $this->normalizeIsoWeekDay($alternatingCustody['change_day'] ?? 1, 1);
     }
 
     private function normalizeIsoWeekDay(mixed $value, int $default = 1): int

@@ -749,6 +749,7 @@ Authorization: Bearer {{auth_token}}
 # NOTE:
 # - Pour une routine mensuelle, envoyer aussi start_date (YYYY-MM-DD)
 # - Notifications attendues: type "task_routine_assigned" pour les membres assignes (hors createur)
+# - Si la garde alternée est activée, inter_household_week_start est aligné sur custody_change_day
 POST {{baseUrl}}/api/tasks/templates
 Content-Type: {{contentType}}
 Accept: {{contentType}}
@@ -763,7 +764,7 @@ Authorization: Bearer {{auth_token}}
   "is_rotation": true,
   "rotation_cycle_weeks": 2,
   "is_inter_household_alternating": true,
-  "inter_household_week_start": "2026-03-02"
+  "inter_household_week_start": "2026-03-06"
 }
 
 > {%
@@ -788,7 +789,7 @@ Authorization: Bearer {{auth_token}}
   "is_rotation": true,
   "rotation_cycle_weeks": 1,
   "is_inter_household_alternating": true,
-  "inter_household_week_start": "2026-03-09"
+  "inter_household_week_start": "2026-03-13"
 }
 
 ### Tasks - Créer une instance (parent ou enfant)

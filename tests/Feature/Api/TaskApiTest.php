@@ -283,6 +283,60 @@ class TaskApiTest extends TestCase
         ]);
     }
 
+    public function test_inter_household_alternation_respects_friday_change_day_boundaries(): void
+    {
+        [$parent, $child] = $this->createHouseholdWithMembers();
+        $household = $parent->households()->firstOrFail();
+
+        HouseholdSetting::query()->create([
+            'household_id' => $household->id,
+            'has_tasks' => true,
+            'has_calendar' => true,
+            'tasks_config' => [
+                'alternating_custody_enabled' => true,
+                'custody_change_day' => 5,
+                'custody_home_week_start' => '2026-03-06',
+            ],
+        ]);
+
+        $template = TaskTemplate::query()->create([
+            'household_id' => $household->id,
+            'name' => 'Sortir les poubelles',
+            'description' => 'Un jeudi sur deux',
+            'recurrence' => 'weekly',
+            'recurrence_days' => [4],
+            'is_rotation' => false,
+            'rotation_cycle_weeks' => 1,
+            'is_inter_household_alternating' => true,
+            'inter_household_week_start' => '2026-03-06',
+            'fixed_user_id' => $child->id,
+        ]);
+
+        Sanctum::actingAs($parent);
+
+        $response = $this->getJson('/api/tasks/board?from=2026-03-06&to=2026-03-27')
+            ->assertOk();
+
+        $dueDates = collect($response->json('instances'))
+            ->pluck('due_date')
+            ->values()
+            ->all();
+
+        $this->assertSame(['2026-03-12', '2026-03-26'], $dueDates);
+        $this->assertDatabaseHas('task_instances', [
+            'due_date' => '2026-03-12',
+            'user_id' => $child->id,
+        ]);
+        $this->assertDatabaseHas('task_instances', [
+            'due_date' => '2026-03-26',
+            'user_id' => $child->id,
+        ]);
+        $this->assertDatabaseMissing('task_instances', [
+            'due_date' => '2026-03-19',
+            'task_template_id' => $template->id,
+        ]);
+    }
+
     public function test_global_alternating_custody_with_friday_change_day_generates_child_tasks_every_other_week(): void
     {
         [$parent, $child] = $this->createHouseholdWithMembers();
