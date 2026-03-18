@@ -15,6 +15,7 @@ use App\Models\MealPlanAttendance;
 use App\Models\Recipe;
 use App\Models\UserNotification;
 use App\Models\User;
+use App\Services\CalendarManagerService;
 use App\Services\RealtimePublisher;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -33,6 +34,7 @@ class CalendarController extends Controller
 
     public function __construct(
         private readonly RealtimePublisher $realtimePublisher,
+        private readonly CalendarManagerService $calendarManagerService,
     ) {
     }
 
@@ -177,19 +179,13 @@ class CalendarController extends Controller
             abort(403, 'Seul un parent peut partager un evenement avec un autre foyer.');
         }
 
-        $startAt = Carbon::parse((string) $validated['start_at']);
-        $endAt = Carbon::parse((string) $validated['end_at']);
         $linkedHouseholdId = $shouldShare ? $this->resolveConnectedHouseholdId($household) : null;
 
-        $event = Event::query()->create([
-            'household_id' => $household->id,
-            'created_by_user_id' => $request->user()->id,
-            'title' => trim((string) $validated['title']),
-            'description' => $validated['description'] ?? null,
-            'start_at' => $startAt,
-            'end_at' => $endAt,
-            'is_shared_with_other_household' => $shouldShare,
-        ])->load('creator:id,name');
+        $event = $this->calendarManagerService->createEvent(
+            household: $household,
+            createdByUserId: (int) $request->user()->id,
+            validated: $validated,
+        );
 
         $this->notifyCalendarChangeToHouseholdMembers(
             household: $household,
@@ -406,25 +402,13 @@ class CalendarController extends Controller
             $household
         );
 
-        $mealPlan = MealPlan::query()->updateOrCreate(
-            [
-                'household_id' => $household->id,
-                'date' => (string) $validated['date'],
-                'meal_type' => (string) $validated['meal_type'],
-            ],
-            $mealPlanUpdatePayload
+        $mealPlan = $this->calendarManagerService->storeMealPlan(
+            household: $household,
+            validated: $validated,
+            mealPlanUpdatePayload: $mealPlanUpdatePayload,
+            recipeId: $recipeId,
+            servings: $servings,
         );
-
-        $mealPlan->items()->delete();
-        if ($recipeId !== null) {
-            $mealPlan->items()->create([
-                'recipe_id' => $recipeId,
-                'servings' => $servings,
-                'position' => 1,
-            ]);
-        }
-
-        $mealPlan->load(['items.recipe:id,title,type']);
 
         $this->notifyCalendarChangeToHouseholdMembers(
             household: $household,
