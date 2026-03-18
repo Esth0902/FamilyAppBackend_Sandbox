@@ -334,7 +334,14 @@ class BudgetController extends Controller
             'budget_adjustment_added',
             $isBonus ? 'Bonus attribué' : 'Pénalité attribuée',
             $isBonus ? sprintf('Un bonus de %0.2f € a été ajouté à ton budget.', $amount) : sprintf('Une pénalité de %0.2f € a été appliquée à ton budget.', $amount),
-            ['transaction_id' => (int) $transaction->id, 'user_id' => (int) $child->id, 'amount' => $amount, 'type' => $type, 'status' => (string) $transaction->status],
+            [
+                'transaction_id' => (int) $transaction->id,
+                'user_id' => (int) $child->id,
+                'amount' => $amount,
+                'type' => $type,
+                'status' => (string) $transaction->status,
+                'justification' => $this->normalizeNotificationJustification($transaction->comment),
+            ],
         );
 
         $this->publishBudgetRealtime((int) $household->id, 'adjustment.created', [
@@ -382,7 +389,14 @@ class BudgetController extends Controller
             'budget_adjustment_updated',
             $isBonus ? 'Bonus mis à jour' : 'Pénalité mise à jour',
             $isBonus ? sprintf('Un bonus de %0.2f € a été mis à jour sur ton budget.', $nextAmount) : sprintf('Une pénalité de %0.2f € a été mise à jour sur ton budget.', $nextAmount),
-            ['transaction_id' => (int) $transaction->id, 'user_id' => (int) $transaction->user_id, 'amount' => $nextAmount, 'type' => $nextType, 'status' => (string) $transaction->status],
+            [
+                'transaction_id' => (int) $transaction->id,
+                'user_id' => (int) $transaction->user_id,
+                'amount' => $nextAmount,
+                'type' => $nextType,
+                'status' => (string) $transaction->status,
+                'justification' => $this->normalizeNotificationJustification($nextComment),
+            ],
         );
 
         $this->publishBudgetRealtime((int) $household->id, 'adjustment.updated', [
@@ -411,6 +425,7 @@ class BudgetController extends Controller
         $amount = abs((float) $transaction->amount);
         $type = (string) $transaction->type;
         $isBonus = $type === self::TYPE_BONUS;
+        $justification = $this->normalizeNotificationJustification($transaction->comment);
 
         $transaction->delete();
 
@@ -420,7 +435,13 @@ class BudgetController extends Controller
             'budget_adjustment_deleted',
             $isBonus ? 'Bonus supprimé' : 'Pénalité supprimée',
             $isBonus ? sprintf('Un bonus de %0.2f € a été supprimé de ton budget.', $amount) : sprintf('Une pénalité de %0.2f € a été supprimée de ton budget.', $amount),
-            ['transaction_id' => $transactionId, 'user_id' => $childUserId, 'amount' => $amount, 'type' => $type],
+            [
+                'transaction_id' => $transactionId,
+                'user_id' => $childUserId,
+                'amount' => $amount,
+                'type' => $type,
+                'justification' => $justification,
+            ],
         );
 
         $this->publishBudgetRealtime((int) $household->id, 'adjustment.deleted', [
@@ -632,6 +653,7 @@ class BudgetController extends Controller
                 'status' => (string) $transaction->status,
                 'request_kind' => $requestKind,
                 'payout_mode' => $payoutMode,
+                'justification' => $this->normalizeNotificationJustification($mergedComment),
             ],
         );
 
@@ -679,6 +701,7 @@ class BudgetController extends Controller
                 'amount' => abs($amount),
                 'status' => (string) $tx->status,
                 'request_kind' => $requestKind,
+                'justification' => $this->normalizeNotificationJustification($comment),
             ],
         );
 
@@ -895,6 +918,12 @@ class BudgetController extends Controller
             return $base === '' ? null : $base;
         }
         return $base === '' ? 'Note parent: ' . $review : $base . "\n\n" . 'Note parent: ' . $review;
+    }
+
+    private function normalizeNotificationJustification(?string $comment): ?string
+    {
+        $value = trim((string) $comment);
+        return $value === '' ? null : $value;
     }
 
     private function extractBudgetCommentMetadata(?string $storedComment): array

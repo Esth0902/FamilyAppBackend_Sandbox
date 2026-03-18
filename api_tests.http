@@ -618,6 +618,7 @@ X-Household-Id: {{active_household_id}}
 # - notifications[].read_at (ISO 8601|null)
 # - notifications[].data.status (pending|accepted|refused) pour les demandes actionnables
 # - notifications[].data.household_name (string) pour les notifications de tâches multi-foyers
+# - notifications budget (bonus/pénalité/avance/remboursement): notifications[].data.justification (string|null)
 
 ### Notifications - Recuperer celles en attente sur tous les foyers du user
 GET {{baseUrl}}/api/notifications/pending?all_households=1

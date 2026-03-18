@@ -7,6 +7,7 @@ use App\Models\Household;
 use App\Models\HouseholdSetting;
 use App\Models\PocketMoneyTransaction;
 use App\Models\User;
+use App\Models\UserNotification;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -79,6 +80,15 @@ class BudgetApiTest extends TestCase
             'status' => 'pending',
             'amount' => 10,
         ]);
+
+        $notification = UserNotification::query()
+            ->where('user_id', $parent->id)
+            ->where('type', 'budget_advance_requested')
+            ->latest('id')
+            ->first();
+
+        $this->assertNotNull($notification);
+        $this->assertSame('Besoin pour la sortie scolaire', data_get($notification?->data, 'justification'));
     }
 
     public function test_child_cannot_request_advance_above_limit(): void
@@ -149,6 +159,17 @@ class BudgetApiTest extends TestCase
             'status' => 'approved',
             'amount' => 8,
         ]);
+
+        $notification = UserNotification::query()
+            ->where('user_id', $child->id)
+            ->where('type', 'budget_advance_reviewed')
+            ->latest('id')
+            ->first();
+
+        $this->assertNotNull($notification);
+        $justification = (string) data_get($notification?->data, 'justification', '');
+        $this->assertStringContainsString('Achat fournitures', $justification);
+        $this->assertStringContainsString('Montant ajust', $justification);
     }
 
     public function test_parent_from_other_household_cannot_review_advance(): void
@@ -221,4 +242,3 @@ class BudgetApiTest extends TestCase
         return [$parent->fresh(), $child->fresh(), $household->fresh()];
     }
 }
-
