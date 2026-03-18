@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Api\Concerns\ResolvesDateRange;
 use App\Http\Controllers\Api\Concerns\ResolvesHouseholdContext;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Calendar\StoreMealPlanRequest;
 use App\Models\Event;
 use App\Models\EventParticipation;
 use App\Models\Household;
@@ -394,12 +395,12 @@ class CalendarController extends Controller
         ]);
     }
 
-    public function storeMealPlan(Request $request): JsonResponse
+    public function storeMealPlan(StoreMealPlanRequest $request): JsonResponse
     {
         [$household, $role] = $this->resolveHouseholdWithRole($request);
         $this->ensureParentRole($role);
 
-        $validated = $this->validateMealPlanPayload($request);
+        $validated = $request->validated();
         [$mealPlanUpdatePayload, $recipeId, $servings] = $this->resolveMealPlanPayload(
             $validated,
             $household
@@ -460,13 +461,13 @@ class CalendarController extends Controller
         ], $mealPlan->wasRecentlyCreated ? 201 : 200);
     }
 
-    public function updateMealPlan(Request $request, MealPlan $mealPlan): JsonResponse
+    public function updateMealPlan(StoreMealPlanRequest $request, MealPlan $mealPlan): JsonResponse
     {
         [$household, $role] = $this->resolveHouseholdWithRole($request);
         $this->ensureParentRole($role);
         $this->ensureMealPlanBelongsToHousehold($mealPlan, $household);
 
-        $validated = $this->validateMealPlanPayload($request);
+        $validated = $request->validated();
         [$mealPlanUpdatePayload, $recipeId, $servings] = $this->resolveMealPlanPayload(
             $validated,
             $household
@@ -669,18 +670,6 @@ class CalendarController extends Controller
                 'reason' => $participation->reason,
                 'responded_at' => optional($participation->responded_at)->toIso8601String(),
             ],
-        ]);
-    }
-
-    private function validateMealPlanPayload(Request $request): array
-    {
-        return $request->validate([
-            'date' => ['required', 'date_format:Y-m-d'],
-            'meal_type' => ['required', 'string', 'in:matin,midi,soir'],
-            'recipe_id' => ['nullable', 'integer', 'exists:recipes,id', 'required_without:custom_title'],
-            'custom_title' => ['nullable', 'string', 'max:120', 'required_without:recipe_id'],
-            'servings' => ['nullable', 'integer', 'min:1', 'max:30'],
-            'note' => ['nullable', 'string', 'max:255'],
         ]);
     }
 

@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Api\Concerns\ResolvesHouseholdContext;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Household\StoreHouseholdRequest;
+use App\Http\Requests\Household\UpdateHouseholdConfigRequest;
 use App\Models\BudgetSetting;
 use App\Models\DietaryTag;
 use App\Models\Household;
@@ -43,82 +45,9 @@ class HouseholdController extends Controller
     ) {
     }
 
-    public function store(Request $request)
+    public function store(StoreHouseholdRequest $request)
     {
-        $payload = $request->all();
-        if (isset($payload['members']) && is_array($payload['members'])) {
-            foreach ($payload['members'] as $index => $memberPayload) {
-                if (!is_array($memberPayload) || !array_key_exists('email', $memberPayload)) {
-                    continue;
-                }
-                $payload['members'][$index]['email'] = $this->normalizeEmailInput($memberPayload['email']);
-            }
-        }
-        $request->replace($payload);
-
-        $validated = $request->validate([
-            'household_name' => 'nullable|string|max:255',
-            'name' => 'nullable|string|max:255',
-
-            'members' => 'nullable|array',
-            'members.*.name' => 'required|string|max:255',
-            'members.*.role' => 'required|in:parent,enfant',
-            'members.*.email' => 'nullable|email',
-            'members.*.budget' => 'nullable|array',
-            'members.*.budget.base_amount' => 'nullable|numeric|min:0',
-            'members.*.budget.recurrence' => 'nullable|in:weekly,monthly',
-            'members.*.budget.reset_day' => 'nullable|integer|min:1|max:31',
-            'members.*.budget.allow_advances' => 'nullable|boolean',
-            'members.*.budget.max_advance_amount' => 'nullable|numeric|min:0',
-
-            // Compatibilite temporaire avec l'ancien setup mobile.
-            'children_profiles' => 'nullable|array',
-            'children_profiles.*' => 'nullable|string|max:255',
-            'settings' => 'nullable|array',
-            'poll_day' => 'nullable',
-            'poll_time' => 'nullable|string',
-            'poll_duration' => 'nullable|integer|min:1|max:168',
-
-            'modules' => 'nullable|array',
-            'modules.meals.enabled' => 'nullable|boolean',
-            'modules.meals.options' => 'nullable|array',
-            'modules.meals.options.recipes' => 'nullable|boolean',
-            'modules.meals.options.polls' => 'nullable|boolean',
-            'modules.meals.options.shopping_list' => 'nullable|boolean',
-            'modules.meals.settings' => 'nullable|array',
-            'modules.meals.settings.poll_day' => 'nullable',
-            'modules.meals.settings.poll_time' => 'nullable|string',
-            'modules.meals.settings.poll_duration' => 'nullable|integer|min:1|max:168',
-            'modules.meals.settings.max_votes_per_user' => 'nullable|integer|min:1|max:20',
-            'modules.meals.settings.default_servings' => 'nullable|integer|min:1|max:30',
-            'modules.meals.settings.dietary_tags' => 'nullable|array',
-            'modules.meals.settings.dietary_tags.*' => 'nullable|string|max:120',
-
-            'modules.tasks.enabled' => 'nullable|boolean',
-            'modules.tasks.settings' => 'nullable|array',
-            'modules.tasks.settings.reminders_enabled' => 'nullable|boolean',
-            'modules.tasks.settings.alternating_custody_enabled' => 'nullable|boolean',
-            'modules.tasks.settings.custody_change_day' => 'nullable|integer|min:1|max:7',
-            'modules.tasks.settings.custody_home_week_start' => 'nullable|date_format:Y-m-d',
-            'modules.tasks.settings.templates' => 'nullable|array',
-            'modules.tasks.settings.templates.*.id' => 'nullable|integer',
-            'modules.tasks.settings.templates.*.name' => 'required|string|max:255',
-            'modules.tasks.settings.templates.*.description' => 'nullable|string|max:1000',
-            'modules.tasks.settings.templates.*.recurrence' => 'required|in:daily,weekly,monthly,once',
-            'modules.tasks.settings.templates.*.recurrence_days' => 'nullable|array',
-            'modules.tasks.settings.templates.*.recurrence_days.*' => 'nullable|integer|min:1|max:7',
-            'modules.tasks.settings.templates.*.is_rotation' => 'nullable|boolean',
-            'modules.tasks.settings.templates.*.rotation_cycle_weeks' => 'nullable|integer|in:1,2',
-            'modules.tasks.settings.templates.*.is_inter_household_alternating' => 'nullable|boolean',
-            'modules.tasks.settings.templates.*.inter_household_week_start' => 'nullable|date_format:Y-m-d',
-            'modules.tasks.settings.templates.*.fixed_user_id' => 'nullable|integer',
-
-            'modules.calendar.enabled' => 'nullable|boolean',
-            'modules.calendar.settings' => 'nullable|array',
-
-            'modules.budget.enabled' => 'nullable|boolean',
-            'modules.budget.settings' => 'nullable|array',
-        ]);
+        $validated = $request->validated();
 
         $householdName = trim((string)($validated['household_name'] ?? $validated['name'] ?? ''));
         if ($householdName === '') {
@@ -1011,56 +940,13 @@ class HouseholdController extends Controller
         ], 201);
     }
 
-    public function updateConfig(Request $request)
+    public function updateConfig(UpdateHouseholdConfigRequest $request)
     {
         [$household, $role] = $this->resolveHouseholdWithRole($request);
         $this->ensureParentRole($role);
         $updatedByUserId = (int) ($request->user()?->id ?? 0);
 
-        $validated = $request->validate([
-            'household_name' => 'nullable|string|max:255',
-            'name' => 'nullable|string|max:255',
-
-            'modules' => 'required|array',
-            'modules.meals.enabled' => 'nullable|boolean',
-            'modules.meals.options' => 'nullable|array',
-            'modules.meals.options.recipes' => 'nullable|boolean',
-            'modules.meals.options.polls' => 'nullable|boolean',
-            'modules.meals.options.shopping_list' => 'nullable|boolean',
-            'modules.meals.settings' => 'nullable|array',
-            'modules.meals.settings.poll_day' => 'nullable',
-            'modules.meals.settings.poll_time' => 'nullable|string',
-            'modules.meals.settings.poll_duration' => 'nullable|integer|min:1|max:168',
-            'modules.meals.settings.max_votes_per_user' => 'nullable|integer|min:1|max:20',
-            'modules.meals.settings.default_servings' => 'nullable|integer|min:1|max:30',
-            'modules.meals.settings.dietary_tags' => 'nullable|array',
-            'modules.meals.settings.dietary_tags.*' => 'nullable|string|max:120',
-
-            'modules.tasks.enabled' => 'nullable|boolean',
-            'modules.tasks.settings' => 'nullable|array',
-            'modules.tasks.settings.reminders_enabled' => 'nullable|boolean',
-            'modules.tasks.settings.alternating_custody_enabled' => 'nullable|boolean',
-            'modules.tasks.settings.custody_change_day' => 'nullable|integer|min:1|max:7',
-            'modules.tasks.settings.custody_home_week_start' => 'nullable|date_format:Y-m-d',
-            'modules.tasks.settings.templates' => 'nullable|array',
-            'modules.tasks.settings.templates.*.id' => 'nullable|integer',
-            'modules.tasks.settings.templates.*.name' => 'required|string|max:255',
-            'modules.tasks.settings.templates.*.description' => 'nullable|string|max:1000',
-            'modules.tasks.settings.templates.*.recurrence' => 'required|in:daily,weekly,monthly,once',
-            'modules.tasks.settings.templates.*.recurrence_days' => 'nullable|array',
-            'modules.tasks.settings.templates.*.recurrence_days.*' => 'nullable|integer|min:1|max:7',
-            'modules.tasks.settings.templates.*.is_rotation' => 'nullable|boolean',
-            'modules.tasks.settings.templates.*.rotation_cycle_weeks' => 'nullable|integer|in:1,2',
-            'modules.tasks.settings.templates.*.is_inter_household_alternating' => 'nullable|boolean',
-            'modules.tasks.settings.templates.*.inter_household_week_start' => 'nullable|date_format:Y-m-d',
-            'modules.tasks.settings.templates.*.fixed_user_id' => 'nullable|integer',
-
-            'modules.calendar.enabled' => 'nullable|boolean',
-            'modules.calendar.settings' => 'nullable|array',
-
-            'modules.budget.enabled' => 'nullable|boolean',
-            'modules.budget.settings' => 'nullable|array',
-        ]);
+        $validated = $request->validated();
 
         $householdName = trim((string)($validated['household_name'] ?? $validated['name'] ?? $household->name));
         if ($householdName === '') {
