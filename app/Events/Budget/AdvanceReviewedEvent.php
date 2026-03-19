@@ -1,0 +1,28 @@
+<?php
+
+namespace App\Events\Budget;
+
+use App\Models\PocketMoneyTransaction;
+use Illuminate\Foundation\Events\Dispatchable;
+use Illuminate\Queue\SerializesModels;
+
+class AdvanceReviewedEvent
+{
+    use Dispatchable;
+    use SerializesModels;
+
+    public function __construct(
+        public readonly PocketMoneyTransaction $transaction,
+        public readonly int $householdId,
+        public readonly int $userId,
+        public readonly float $amount,
+        public readonly string $status,
+        public readonly string $requestKind,
+        public readonly ?string $payoutMode,
+        public readonly bool $approved,
+        public readonly bool $isReimbursement,
+        public readonly string $modeText,
+        public readonly ?string $justification,
+    ) {
+    }
+}

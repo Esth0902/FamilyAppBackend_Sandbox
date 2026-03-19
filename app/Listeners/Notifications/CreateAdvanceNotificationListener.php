@@ -9,18 +9,24 @@ use App\Services\NotificationService;
 
 class CreateAdvanceNotificationListener
 {
+    private const REQUEST_KIND_REIMBURSEMENT = 'reimbursement';
+
     public function __construct(private readonly NotificationService $notificationService)
     {
     }
 
     public function handle(AdvanceRequestedEvent $event): void
     {
+        $isReimbursement = $event->requestKind === self::REQUEST_KIND_REIMBURSEMENT;
+
         $this->notificationService->notifyUsers(
             $this->resolveParentUserIds($event->householdId),
             $event->householdId,
-            'budget_advance_requested',
-            'Nouvelle demande d\'avance',
-            sprintf('%s a demandé une avance de %0.2f €.', $event->requesterName, abs($event->amount)),
+            $isReimbursement ? 'budget_reimbursement_requested' : 'budget_advance_requested',
+            $isReimbursement ? 'Nouvelle demande de remboursement' : 'Nouvelle demande d\'avance',
+            $isReimbursement
+                ? sprintf('%s demande un remboursement de %0.2f €.', $event->requesterName, abs($event->amount))
+                : sprintf('%s a demandé une avance de %0.2f €.', $event->requesterName, abs($event->amount)),
             [
                 'transaction_id' => (int) $event->transaction->id,
                 'user_id' => $event->requesterUserId,
@@ -58,4 +64,3 @@ class CreateAdvanceNotificationListener
         return $value === '' ? null : $value;
     }
 }
-

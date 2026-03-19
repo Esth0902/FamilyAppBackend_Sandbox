@@ -3,58 +3,41 @@
 namespace App\Actions\Budget;
 
 use App\Actions\Budget\Concerns\InteractsWithBudgetContext;
-use App\DTOs\Budget\AdvanceRequestDTO;
-use App\Domain\Budget\Services\BudgetCalculationService;
 use App\Domain\Budget\ValueObjects\BudgetComment;
 use App\Events\Budget\AdvanceRequestedEvent;
 use App\Models\BudgetSetting;
 use App\Models\Household;
 use App\Models\PocketMoneyTransaction;
 use App\Models\User;
-use Illuminate\Validation\ValidationException;
 
-class RequestAdvanceAction
+class RequestReimbursementAction
 {
     use InteractsWithBudgetContext;
 
     private const TYPE_ADVANCE = 'advance';
     private const STATUS_PENDING = 'pending';
-    private const REQUEST_KIND_ADVANCE = 'advance';
-
-    public function __construct(private readonly BudgetCalculationService $budgetCalculationService)
-    {
-    }
+    private const REQUEST_KIND_REIMBURSEMENT = 'reimbursement';
 
     public function execute(
         Household $household,
-        string $currentRole,
+        string $role,
         User $currentUser,
-        AdvanceRequestDTO $dto
-    ): PocketMoneyTransaction
-    {
+        float $amount,
+        string $comment
+    ): PocketMoneyTransaction {
         $this->ensureBudgetModuleEnabled($household);
-        $this->ensureChildRole($currentRole);
+        $this->ensureChildRole($role);
 
         $setting = BudgetSetting::query()
             ->where('household_id', $household->id)
             ->where('user_id', $currentUser->id)
             ->first();
-
         if (!$setting) {
             abort(403, 'Aucun paramètre budget configuré pour cet enfant.');
         }
 
-        if (!(bool) $setting->allow_advances) {
-            abort(403, 'Les avances sont désactivées pour ce budget.');
-        }
-
-        $requestedAmount = $this->budgetCalculationService->normalizeRequestedAmount($dto->amount);
-        $maxAdvanceAmount = (float) $setting->max_advance_amount;
-        if (!$this->budgetCalculationService->isAdvanceAmountAllowed($requestedAmount, $maxAdvanceAmount)) {
-            throw ValidationException::withMessages([
-                'amount' => ["Le montant demandé dépasse la limite autorisée ({$maxAdvanceAmount})."],
-            ]);
-        }
+        $requestedAmount = abs($amount);
+        $cleanComment = trim($comment);
 
         $transaction = PocketMoneyTransaction::query()->create([
             'household_id' => $household->id,
@@ -62,7 +45,7 @@ class RequestAdvanceAction
             'amount' => $requestedAmount,
             'type' => self::TYPE_ADVANCE,
             'status' => self::STATUS_PENDING,
-            'comment' => new BudgetComment($dto->comment, self::REQUEST_KIND_ADVANCE),
+            'comment' => new BudgetComment($cleanComment, self::REQUEST_KIND_REIMBURSEMENT),
         ]);
         $transaction->load('user:id,name');
 
@@ -72,8 +55,8 @@ class RequestAdvanceAction
             requesterUserId: (int) $currentUser->id,
             requesterName: (string) ($currentUser->name ?? 'Un enfant'),
             amount: $requestedAmount,
-            requestKind: self::REQUEST_KIND_ADVANCE,
-            comment: $dto->comment,
+            requestKind: self::REQUEST_KIND_REIMBURSEMENT,
+            comment: $cleanComment,
         ));
 
         return $transaction;

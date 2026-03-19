@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Api;
 
+use App\Domain\Budget\ValueObjects\BudgetComment;
 use App\Models\BudgetSetting;
 use App\Models\Household;
 use App\Models\HouseholdSetting;
@@ -93,6 +94,103 @@ class BudgetApiTest extends TestCase
 
         $this->assertNotNull($notification);
         $this->assertSame('Besoin pour la sortie scolaire', data_get($notification?->data, 'justification'));
+    }
+
+    public function test_budget_comment_cast_persists_meta_prefix_in_database(): void
+    {
+        [$parent, $child, $household] = $this->createHouseholdWithBudgetModule();
+        $transaction = PocketMoneyTransaction::query()->create([
+            'household_id' => $household->id,
+            'user_id' => $child->id,
+            'amount' => 9,
+            'type' => 'advance',
+            'status' => 'approved',
+            'comment' => new BudgetComment('Achat urgent', BudgetComment::REQUEST_KIND_ADVANCE, BudgetComment::PAYOUT_MODE_IMMEDIATE),
+        ]);
+
+        $this->assertDatabaseHas('pocket_money_transactions', [
+            'id' => $transaction->id,
+            'comment' => "[budget-meta]request_kind=advance;payout_mode=immediate\nAchat urgent",
+        ]);
+
+        $refreshed = PocketMoneyTransaction::query()->findOrFail($transaction->id);
+        $this->assertInstanceOf(BudgetComment::class, $refreshed->comment);
+        $this->assertSame('Achat urgent', $refreshed->comment->displayComment);
+        $this->assertSame(BudgetComment::REQUEST_KIND_ADVANCE, $refreshed->comment->requestKind);
+        $this->assertSame(BudgetComment::PAYOUT_MODE_IMMEDIATE, $refreshed->comment->payoutMode);
+    }
+
+    public function test_parent_can_create_adjustment_and_child_is_notified(): void
+    {
+        [$parent, $child, $household] = $this->createHouseholdWithBudgetModule();
+        Sanctum::actingAs($parent);
+
+        $this->postJson('/api/budget/adjustments', [
+            'user_id' => $child->id,
+            'type' => 'bonus',
+            'amount' => 7.5,
+            'comment' => 'Aide en cuisine',
+        ])
+            ->assertCreated()
+            ->assertJsonPath('transaction.type', 'bonus')
+            ->assertJsonPath('transaction.user_id', $child->id)
+            ->assertJsonPath('transaction.amount', 7.5);
+
+        $this->assertDatabaseHas('pocket_money_transactions', [
+            'household_id' => $household->id,
+            'user_id' => $child->id,
+            'type' => 'bonus',
+            'status' => 'approved',
+            'amount' => 7.5,
+        ]);
+
+        $this->assertDatabaseHas('user_notifications', [
+            'household_id' => $household->id,
+            'user_id' => $child->id,
+            'type' => 'budget_adjustment_added',
+        ]);
+    }
+
+    public function test_parent_can_validate_payment_and_child_is_notified(): void
+    {
+        [$parent, $child, $household] = $this->createHouseholdWithBudgetModule();
+        BudgetSetting::query()->create([
+            'household_id' => $household->id,
+            'user_id' => $child->id,
+            'base_amount' => 20,
+            'recurrence' => 'weekly',
+            'reset_day' => 1,
+            'allow_advances' => true,
+            'max_advance_amount' => 10,
+        ]);
+
+        Sanctum::actingAs($parent);
+
+        $this->postJson('/api/budget/payments', [
+            'user_id' => $child->id,
+            'action' => 'pay',
+            'amount' => 20,
+            'comment' => 'Versement semaine',
+        ])
+            ->assertCreated()
+            ->assertJsonPath('transaction.type', 'allocation')
+            ->assertJsonPath('transaction.status', 'approved')
+            ->assertJsonPath('transaction.user_id', $child->id)
+            ->assertJsonPath('transaction.amount', 20.0);
+
+        $this->assertDatabaseHas('pocket_money_transactions', [
+            'household_id' => $household->id,
+            'user_id' => $child->id,
+            'type' => 'allocation',
+            'status' => 'approved',
+            'amount' => 20,
+        ]);
+
+        $this->assertDatabaseHas('user_notifications', [
+            'household_id' => $household->id,
+            'user_id' => $child->id,
+            'type' => 'budget_payment_validated',
+        ]);
     }
 
     public function test_child_request_advance_uses_household_context_header(): void
