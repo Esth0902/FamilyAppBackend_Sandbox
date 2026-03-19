@@ -82,14 +82,16 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'must.change.password'])->gro
     Route::post('/meal-polls/{poll}/validate', [MealPollController::class, 'validateResults']);
 
     // Tasks
-    Route::get('/tasks/board', [TaskController::class, 'board']);
-    Route::post('/tasks/templates', [TaskController::class, 'storeTemplate']);
-    Route::patch('/tasks/templates/{template}', [TaskController::class, 'updateTemplate']);
-    Route::delete('/tasks/templates/{template}', [TaskController::class, 'destroyTemplate']);
-    Route::post('/tasks/instances', [TaskController::class, 'storeInstance']);
-    Route::patch('/tasks/instances/{instance}', [TaskController::class, 'updateInstance']);
-    Route::post('/tasks/instances/{instance}/validate', [TaskController::class, 'validateInstance']);
-    Route::post('/tasks/instances/{instance}/reassignment-request', [TaskController::class, 'requestInstanceReassignment']);
+    Route::middleware('household.context')->group(function (): void {
+        Route::get('/tasks/board', [TaskController::class, 'board']);
+        Route::post('/tasks/templates', [TaskController::class, 'storeTemplate']);
+        Route::patch('/tasks/templates/{template}', [TaskController::class, 'updateTemplate']);
+        Route::delete('/tasks/templates/{template}', [TaskController::class, 'destroyTemplate']);
+        Route::post('/tasks/instances', [TaskController::class, 'storeInstance']);
+        Route::patch('/tasks/instances/{instance}', [TaskController::class, 'updateInstance']);
+        Route::post('/tasks/instances/{instance}/validate', [TaskController::class, 'validateInstance']);
+        Route::post('/tasks/instances/{instance}/reassignment-request', [TaskController::class, 'requestInstanceReassignment']);
+    });
 
     // Calendar
     Route::get('/calendar/board', [CalendarController::class, 'board']);

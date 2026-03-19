@@ -45,6 +45,32 @@ final class Normalization
     }
 
     /**
+     * @return array<int, int>
+     */
+    public static function recurrenceDays(mixed $value): array
+    {
+        if (!is_array($value)) {
+            return [];
+        }
+
+        $days = [];
+        foreach ($value as $dayValue) {
+            $day = (int) $dayValue;
+            if ($day < 1 || $day > 7) {
+                continue;
+            }
+
+            if (!in_array($day, $days, true)) {
+                $days[] = $day;
+            }
+        }
+
+        sort($days);
+
+        return $days;
+    }
+
+    /**
      * @return array{0: Carbon, 1: Carbon}
      */
     public static function dateRange(Request $request, int $defaultRangeDays = 14, int $maxRangeDays = 45): array

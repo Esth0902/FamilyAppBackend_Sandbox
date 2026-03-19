@@ -10,6 +10,13 @@ use App\Events\Budget\BudgetAdjustmentUpdatedEvent;
 use App\Events\Budget\BudgetSettingUpdatedEvent;
 use App\Events\Budget\NegativeBalanceCarriedOverEvent;
 use App\Events\Budget\PaymentValidatedEvent;
+use App\Events\Tasks\TaskInstanceCreatedEvent;
+use App\Events\Tasks\TaskInstanceUpdatedEvent;
+use App\Events\Tasks\TaskInstanceValidatedEvent;
+use App\Events\Tasks\TaskReassignmentRequestedEvent;
+use App\Events\Tasks\TaskTemplateCreatedEvent;
+use App\Events\Tasks\TaskTemplateDeletedEvent;
+use App\Events\Tasks\TaskTemplateUpdatedEvent;
 use App\Listeners\Budget\HandleAdvanceReviewedEffects;
 use App\Listeners\Budget\HandleBudgetAdjustmentCreatedEffects;
 use App\Listeners\Budget\HandleBudgetAdjustmentDeletedEffects;
@@ -19,6 +26,13 @@ use App\Listeners\Budget\HandleNegativeBalanceCarriedOverEffects;
 use App\Listeners\Budget\HandlePaymentValidatedEffects;
 use App\Listeners\Notifications\CreateAdvanceNotificationListener;
 use App\Listeners\Realtime\BroadcastAdvanceRealtimeListener;
+use App\Listeners\Tasks\HandleTaskInstanceCreatedEffects;
+use App\Listeners\Tasks\HandleTaskInstanceUpdatedEffects;
+use App\Listeners\Tasks\HandleTaskInstanceValidatedEffects;
+use App\Listeners\Tasks\HandleTaskReassignmentRequestedEffects;
+use App\Listeners\Tasks\HandleTaskTemplateCreatedEffects;
+use App\Listeners\Tasks\HandleTaskTemplateDeletedEffects;
+use App\Listeners\Tasks\HandleTaskTemplateUpdatedEffects;
 use Illuminate\Foundation\Support\Providers\EventServiceProvider as ServiceProvider;
 
 class EventServiceProvider extends ServiceProvider
@@ -51,6 +65,27 @@ class EventServiceProvider extends ServiceProvider
         ],
         AdvanceReviewedEvent::class => [
             HandleAdvanceReviewedEffects::class,
+        ],
+        TaskTemplateCreatedEvent::class => [
+            HandleTaskTemplateCreatedEffects::class,
+        ],
+        TaskTemplateUpdatedEvent::class => [
+            HandleTaskTemplateUpdatedEffects::class,
+        ],
+        TaskTemplateDeletedEvent::class => [
+            HandleTaskTemplateDeletedEffects::class,
+        ],
+        TaskInstanceCreatedEvent::class => [
+            HandleTaskInstanceCreatedEffects::class,
+        ],
+        TaskInstanceUpdatedEvent::class => [
+            HandleTaskInstanceUpdatedEffects::class,
+        ],
+        TaskInstanceValidatedEvent::class => [
+            HandleTaskInstanceValidatedEffects::class,
+        ],
+        TaskReassignmentRequestedEvent::class => [
+            HandleTaskReassignmentRequestedEffects::class,
         ],
     ];
 
