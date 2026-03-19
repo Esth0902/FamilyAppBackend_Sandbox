@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Actions\Tasks\ToggleTaskStatusAction;
+use App\Actions\Tasks\UpsertTaskTemplateAction;
 use App\Http\Controllers\Api\Concerns\ResolvesDateRange;
 use App\Http\Controllers\Api\Concerns\ResolvesHouseholdContext;
 use App\Http\Controllers\Controller;
@@ -34,6 +36,8 @@ class TaskController extends Controller
 
     public function __construct(
         private readonly RealtimePublisher $realtimePublisher,
+        private readonly UpsertTaskTemplateAction $upsertTaskTemplateAction,
+        private readonly ToggleTaskStatusAction $toggleTaskStatusAction,
     ) {
     }
 
@@ -195,93 +199,19 @@ class TaskController extends Controller
             'fixed_user_id' => ['nullable', 'integer'],
         ]);
 
-        $recurrence = (string) $validated['recurrence'];
-        [$recurrence, $recurrenceDays] = $this->normalizeTemplateRecurrenceAndDays(
-            $recurrence,
-            $validated['recurrence_days'] ?? null
+        $template = $this->upsertTaskTemplateAction->execute(
+            household: $household,
+            validated: $validated,
         );
-        $startDate = $this->resolveTemplateStartDate(
-            $recurrence,
-            $validated['start_date'] ?? null,
-            null
-        );
-        $endDate = $this->resolveTemplateEndDate(
-            $recurrence,
-            $validated['end_date'] ?? null,
-            $startDate
-        );
-
-        $isRotation = (bool) ($validated['is_rotation'] ?? false);
-        $fixedUserId = $validated['fixed_user_id'] ?? null;
-        if ($fixedUserId !== null) {
-            $fixedUserId = $this->ensureUserBelongsToHousehold((int) $fixedUserId, $household);
-        }
-        $assigneeUserIds = $this->normalizeMemberIdsInput($validated['assignee_user_ids'] ?? null);
-        $rotationUserIds = $this->normalizeMemberIdsInput($validated['rotation_user_ids'] ?? null);
-
-        if (!$isRotation && count($assigneeUserIds) === 0 && $fixedUserId !== null) {
-            $assigneeUserIds = [$fixedUserId];
-        }
-        if ($isRotation && count($rotationUserIds) === 0 && $fixedUserId !== null) {
-            $rotationUserIds = [$fixedUserId];
-        }
-
-        if ($isRotation) {
-            $rotationUserIds = $this->ensureUsersBelongToHousehold($rotationUserIds, $household, 'rotation_user_ids');
-            if (count($rotationUserIds) === 0) {
-                throw ValidationException::withMessages([
-                    'rotation_user_ids' => ['Sélectionnez les membres de la rotation et leur ordre.'],
-                ]);
-            }
-
-            $assigneeUserIds = [];
-            $fixedUserId = (int) ($rotationUserIds[0] ?? 0) ?: null;
-        } else {
-            $assigneeUserIds = $this->ensureUsersBelongToHousehold($assigneeUserIds, $household, 'assignee_user_ids');
-            if (count($assigneeUserIds) === 0) {
-                throw ValidationException::withMessages([
-                    'assignee_user_ids' => ['Sélectionnez au moins un membre pour cette routine.'],
-                ]);
-            }
-
-            $rotationUserIds = [];
-            $fixedUserId = (int) ($assigneeUserIds[0] ?? 0) ?: null;
-        }
-
-        $isInterHouseholdAlternating = (bool) ($validated['is_inter_household_alternating'] ?? false);
-        $alternatingCustody = $this->resolveAlternatingCustodySettings($household);
-        $interHouseholdWeekStartDay = $this->resolveInterHouseholdWeekStartDay($alternatingCustody);
-        $interHouseholdWeekStart = $this->resolveInterHouseholdWeekStart(
-            $isInterHouseholdAlternating,
-            $validated['inter_household_week_start'] ?? null,
-            $interHouseholdWeekStartDay
-        );
-
-        $template = TaskTemplate::query()->create([
-            'household_id' => $household->id,
-            'name' => trim((string) $validated['name']),
-            'description' => $validated['description'] ?? null,
-            'recurrence' => $recurrence,
-            'start_date' => $startDate,
-            'end_date' => $endDate,
-            'recurrence_days' => count($recurrenceDays) > 0 ? $recurrenceDays : null,
-            'assignee_user_ids' => count($assigneeUserIds) > 0 ? $assigneeUserIds : null,
-            'rotation_user_ids' => count($rotationUserIds) > 0 ? $rotationUserIds : null,
-            'is_rotation' => $isRotation,
-            'rotation_cycle_weeks' => $isRotation
-                ? max(1, min(2, (int) ($validated['rotation_cycle_weeks'] ?? 1)))
-                : 1,
-            'is_inter_household_alternating' => $isInterHouseholdAlternating,
-            'inter_household_week_start' => $interHouseholdWeekStart,
-            'fixed_user_id' => $fixedUserId ? (int) $fixedUserId : null,
-        ])->load('fixedUser:id,name');
 
         $taskTitle = (string) $template->name;
         $householdName = (string) ($household->name ?? 'ce foyer');
-        $routineAssigneeIds = $isRotation
-            ? $this->normalizeMemberIdsInput($rotationUserIds)
-            : $this->normalizeMemberIdsInput($assigneeUserIds);
-        if (count($routineAssigneeIds) === 0 && $fixedUserId !== null && (int) $fixedUserId > 0) {
+        $isRotation = (bool) $template->is_rotation;
+        $fixedUserId = $template->fixed_user_id ? (int) $template->fixed_user_id : null;
+        $assigneeUserIds = $this->normalizeMemberIdsInput($template->assignee_user_ids);
+        $rotationUserIds = $this->normalizeMemberIdsInput($template->rotation_user_ids);
+        $routineAssigneeIds = $isRotation ? $rotationUserIds : $assigneeUserIds;
+        if (count($routineAssigneeIds) === 0 && $fixedUserId !== null) {
             $routineAssigneeIds = [(int) $fixedUserId];
         }
 
@@ -361,162 +291,11 @@ class TaskController extends Controller
             'fixed_user_id' => ['sometimes', 'nullable', 'integer'],
         ]);
 
-        if (array_key_exists('fixed_user_id', $validated) && $validated['fixed_user_id'] !== null) {
-            $this->ensureUserBelongsToHousehold((int) $validated['fixed_user_id'], $household);
-        }
-
-        $updates = [];
-        if (array_key_exists('name', $validated)) {
-            $updates['name'] = trim((string) $validated['name']);
-        }
-        if (array_key_exists('description', $validated)) {
-            $updates['description'] = $validated['description'];
-        }
-        if (array_key_exists('recurrence', $validated)) {
-            $updates['recurrence'] = (string) $validated['recurrence'];
-        }
-        if (array_key_exists('recurrence_days', $validated)) {
-            $updates['recurrence_days'] = $this->normalizeRecurrenceDaysInput($validated['recurrence_days'] ?? null);
-        }
-        if (array_key_exists('start_date', $validated)) {
-            $updates['start_date'] = $validated['start_date'];
-        }
-        if (array_key_exists('end_date', $validated)) {
-            $updates['end_date'] = $validated['end_date'];
-        }
-        if (array_key_exists('assignee_user_ids', $validated)) {
-            $updates['assignee_user_ids'] = $this->ensureUsersBelongToHousehold(
-                $this->normalizeMemberIdsInput($validated['assignee_user_ids'] ?? null),
-                $household,
-                'assignee_user_ids'
-            );
-        }
-        if (array_key_exists('rotation_user_ids', $validated)) {
-            $updates['rotation_user_ids'] = $this->ensureUsersBelongToHousehold(
-                $this->normalizeMemberIdsInput($validated['rotation_user_ids'] ?? null),
-                $household,
-                'rotation_user_ids'
-            );
-        }
-        if (array_key_exists('is_rotation', $validated)) {
-            $updates['is_rotation'] = (bool) $validated['is_rotation'];
-        }
-        if (array_key_exists('rotation_cycle_weeks', $validated)) {
-            $updates['rotation_cycle_weeks'] = max(1, min(2, (int) ($validated['rotation_cycle_weeks'] ?? 1)));
-        }
-        if (array_key_exists('is_inter_household_alternating', $validated)) {
-            $updates['is_inter_household_alternating'] = (bool) $validated['is_inter_household_alternating'];
-        }
-        if (array_key_exists('inter_household_week_start', $validated)) {
-            $updates['inter_household_week_start'] = $validated['inter_household_week_start'];
-        }
-        if (array_key_exists('fixed_user_id', $validated)) {
-            $updates['fixed_user_id'] = $validated['fixed_user_id'] ? (int) $validated['fixed_user_id'] : null;
-        }
-
-        $resolvedRecurrenceInput = (string) ($updates['recurrence'] ?? $template->recurrence ?? 'weekly');
-        $resolvedRecurrenceDaysInput = array_key_exists('recurrence_days', $updates)
-            ? $updates['recurrence_days']
-            : $template->recurrence_days;
-        [$resolvedRecurrence, $resolvedRecurrenceDays] = $this->normalizeTemplateRecurrenceAndDays(
-            $resolvedRecurrenceInput,
-            $resolvedRecurrenceDaysInput
+        $template = $this->upsertTaskTemplateAction->execute(
+            household: $household,
+            validated: $validated,
+            template: $template,
         );
-        $updates['recurrence'] = $resolvedRecurrence;
-        $updates['recurrence_days'] = count($resolvedRecurrenceDays) > 0
-            ? $resolvedRecurrenceDays
-            : null;
-
-        $rawStartDate = array_key_exists('start_date', $updates)
-            ? $updates['start_date']
-            : $this->resolveTemplateStartDateValue($template);
-        $resolvedStartDate = $this->resolveTemplateStartDate(
-            $resolvedRecurrence,
-            $rawStartDate,
-            $template
-        );
-        $updates['start_date'] = $resolvedStartDate;
-
-        $rawEndDate = array_key_exists('end_date', $updates)
-            ? $updates['end_date']
-            : optional($template->end_date)->toDateString();
-        $updates['end_date'] = $this->resolveTemplateEndDate(
-            $resolvedRecurrence,
-            $rawEndDate,
-            $resolvedStartDate
-        );
-
-        $resolvedIsRotation = (bool) ($updates['is_rotation'] ?? $template->is_rotation);
-        if (!$resolvedIsRotation) {
-            $updates['rotation_cycle_weeks'] = 1;
-        }
-
-        $assigneeUserIds = array_key_exists('assignee_user_ids', $updates)
-            ? $updates['assignee_user_ids']
-            : $this->normalizeMemberIdsInput($template->assignee_user_ids);
-        $rotationUserIds = array_key_exists('rotation_user_ids', $updates)
-            ? $updates['rotation_user_ids']
-            : $this->normalizeMemberIdsInput($template->rotation_user_ids);
-        $fixedUserId = array_key_exists('fixed_user_id', $updates)
-            ? $updates['fixed_user_id']
-            : ($template->fixed_user_id ? (int) $template->fixed_user_id : null);
-
-        if (!$resolvedIsRotation && count($assigneeUserIds) === 0 && $fixedUserId !== null) {
-            $assigneeUserIds = [(int) $fixedUserId];
-        }
-        if ($resolvedIsRotation && count($rotationUserIds) === 0 && $fixedUserId !== null) {
-            $rotationUserIds = [(int) $fixedUserId];
-        }
-
-        if ($resolvedIsRotation) {
-            $rotationUserIds = $this->ensureUsersBelongToHousehold($rotationUserIds, $household, 'rotation_user_ids');
-            if (count($rotationUserIds) === 0) {
-                throw ValidationException::withMessages([
-                    'rotation_user_ids' => ['Sélectionnez les membres de la rotation et leur ordre.'],
-                ]);
-            }
-
-            $assigneeUserIds = [];
-            $fixedUserId = (int) ($rotationUserIds[0] ?? 0) ?: null;
-        } else {
-            $assigneeUserIds = $this->ensureUsersBelongToHousehold($assigneeUserIds, $household, 'assignee_user_ids');
-            if (count($assigneeUserIds) === 0) {
-                throw ValidationException::withMessages([
-                    'assignee_user_ids' => ['Sélectionnez au moins un membre pour cette routine.'],
-                ]);
-            }
-
-            $rotationUserIds = [];
-            $fixedUserId = (int) ($assigneeUserIds[0] ?? 0) ?: null;
-        }
-
-        $updates['assignee_user_ids'] = count($assigneeUserIds) > 0 ? $assigneeUserIds : null;
-        $updates['rotation_user_ids'] = count($rotationUserIds) > 0 ? $rotationUserIds : null;
-        $updates['fixed_user_id'] = $fixedUserId;
-
-        if (
-            array_key_exists('is_inter_household_alternating', $validated)
-            || array_key_exists('inter_household_week_start', $validated)
-        ) {
-            $alternatingCustody = $this->resolveAlternatingCustodySettings($household);
-            $interHouseholdWeekStartDay = $this->resolveInterHouseholdWeekStartDay($alternatingCustody);
-            $isInterHouseholdAlternating = (bool) ($updates['is_inter_household_alternating'] ?? $template->is_inter_household_alternating);
-            $rawInterHouseholdWeekStart = array_key_exists('inter_household_week_start', $updates)
-                ? $updates['inter_household_week_start']
-                : optional($template->inter_household_week_start)->toDateString();
-            $updates['inter_household_week_start'] = $this->resolveInterHouseholdWeekStart(
-                $isInterHouseholdAlternating,
-                $rawInterHouseholdWeekStart,
-                $interHouseholdWeekStartDay
-            );
-            $updates['is_inter_household_alternating'] = $isInterHouseholdAlternating;
-        }
-
-        if (count($updates) > 0) {
-            $template->update($updates);
-        }
-
-        $template->load('fixedUser:id,name');
 
         $this->publishTasksRealtime(
             householdId: (int) $household->id,
@@ -995,14 +774,10 @@ class TaskController extends Controller
         }
 
         if (array_key_exists('status', $validated)) {
-            $nextStatus = (string) $validated['status'];
-            $updates['status'] = $nextStatus;
-            if ($nextStatus === self::STATUS_DONE) {
-                $updates['completed_at'] = $instance->completed_at ?? now();
-            } else {
-                $updates['completed_at'] = null;
-                $updates['validated_by_parent'] = false;
-            }
+            $instance = $this->toggleTaskStatusAction->execute(
+                instance: $instance,
+                status: (string) $validated['status'],
+            );
         }
 
         if (array_key_exists('validated_by_parent', $validated)) {
@@ -1011,7 +786,7 @@ class TaskController extends Controller
             }
 
             $shouldValidate = (bool) $validated['validated_by_parent'];
-            if ($shouldValidate && ((string) ($updates['status'] ?? $instance->status)) !== self::STATUS_DONE) {
+            if ($shouldValidate && (string) $instance->status !== self::STATUS_DONE) {
                 throw ValidationException::withMessages([
                     'validated_by_parent' => ['Seule une tâche réalisée peut être validée.'],
                 ]);

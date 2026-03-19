@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Actions\Household\LeaveHouseholdAction;
+use App\Actions\Household\UpdateMemberAction;
 use App\Http\Controllers\Api\Concerns\ResolvesHouseholdContext;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Household\AddHouseholdMemberRequest;
@@ -40,6 +42,8 @@ class HouseholdController extends Controller
     public function __construct(
         private readonly HouseholdDeletionService $householdDeletionService,
         private readonly HouseholdManagerService $householdManagerService,
+        private readonly UpdateMemberAction $updateMemberAction,
+        private readonly LeaveHouseholdAction $leaveHouseholdAction,
     ) {
     }
 
@@ -123,117 +127,25 @@ class HouseholdController extends Controller
             'email.unique' => "Cet e-mail est déjà utilisé.",
         ]);
 
-        if (count($validated) === 0) {
-            throw ValidationException::withMessages([
-                'member' => ['Aucune modification demandée.'],
-            ]);
+        $result = $this->updateMemberAction->execute(
+            household: $household,
+            member: $member,
+            validated: $validated,
+        );
+
+        /** @var User $updatedMember */
+        $updatedMember = $result['member'];
+        $response = [
+            'message' => 'Membre mis a jour.',
+            'member' => $this->toHouseholdMemberPayload($updatedMember),
+        ];
+
+        $generatedEmail = $result['generated_email'] ?? null;
+        if (is_string($generatedEmail) && trim($generatedEmail) !== '') {
+            $response['generated_email'] = $generatedEmail;
         }
 
-        $memberInHousehold = $household->users()
-            ->where('users.id', $member->id)
-            ->first();
-        if (!$memberInHousehold) {
-            abort(404, 'Membre introuvable pour ce foyer.');
-        }
-
-        $currentRole = (string) ($memberInHousehold->pivot->role ?? User::ROLE_CHILD);
-        $nextRole = array_key_exists('role', $validated)
-            ? (string) $validated['role']
-            : $currentRole;
-
-        if ($currentRole === User::ROLE_PARENT && $nextRole !== User::ROLE_PARENT) {
-            $this->ensureParentCanBeRemoved($household, (int) $member->id);
-        }
-
-        $name = array_key_exists('name', $validated)
-            ? trim((string) $validated['name'])
-            : (string) $member->name;
-        if ($name === '') {
-            throw ValidationException::withMessages([
-                'name' => ['Le nom du membre est obligatoire.'],
-            ]);
-        }
-
-        $updates = [];
-        if (array_key_exists('name', $validated)) {
-            $updates['name'] = $name;
-        }
-
-        $emailWasGenerated = false;
-        if (array_key_exists('email', $validated)) {
-            $providedEmail = $this->normalizeEmailInput($validated['email'] ?? null) ?? '';
-            if ($providedEmail === '') {
-                $providedEmail = $this->generateUniqueHouseholdEmail($name);
-                $emailWasGenerated = true;
-            }
-            $updates['email'] = $providedEmail;
-        }
-
-        return DB::transaction(function () use (
-            $household,
-            $member,
-            $currentRole,
-            $nextRole,
-            $updates,
-            $validated,
-            $name,
-            $emailWasGenerated
-        ) {
-            if (!empty($updates)) {
-                $member->forceFill($updates)->save();
-            }
-
-            $pivotUpdates = [];
-            if (array_key_exists('role', $validated)) {
-                $pivotUpdates['role'] = $nextRole;
-            }
-            if (array_key_exists('nickname', $validated)) {
-                $nickname = trim((string) ($validated['nickname'] ?? ''));
-                $pivotUpdates['nickname'] = $nickname !== '' ? $nickname : $name;
-            }
-
-            if (!empty($pivotUpdates)) {
-                $household->users()->updateExistingPivot($member->id, $pivotUpdates);
-            }
-
-            if ($currentRole !== $nextRole) {
-                if ($nextRole === User::ROLE_CHILD) {
-                    BudgetSetting::query()->firstOrCreate(
-                        [
-                            'household_id' => $household->id,
-                            'user_id' => $member->id,
-                        ],
-                        [
-                            'base_amount' => 0,
-                            'recurrence' => 'weekly',
-                            'reset_day' => 1,
-                            'allow_advances' => false,
-                            'max_advance_amount' => 0,
-                        ]
-                    );
-                } else {
-                    BudgetSetting::query()
-                        ->where('household_id', $household->id)
-                        ->where('user_id', $member->id)
-                        ->delete();
-                }
-            }
-
-            $freshMember = $household->users()
-                ->where('users.id', $member->id)
-                ->firstOrFail();
-
-            $response = [
-                'message' => 'Membre mis a jour.',
-                'member' => $this->toHouseholdMemberPayload($freshMember),
-            ];
-
-            if ($emailWasGenerated) {
-                $response['generated_email'] = (string) $freshMember->email;
-            }
-
-            return response()->json(JsonUtf8Sanitizer::sanitize($response));
-        });
+        return response()->json(JsonUtf8Sanitizer::sanitize($response));
     }
 
     public function deleteMember(Request $request, User $member)
@@ -345,37 +257,10 @@ class HouseholdController extends Controller
         $this->ensureParentRole($role);
         $member = $this->resolveAuthenticatedUser($request);
 
-        $isMember = $household->users()
-            ->where('users.id', (int) $member->id)
-            ->exists();
-        if (!$isMember) {
-            abort(404, 'Membre introuvable pour ce foyer.');
-        }
-
-        if (!$this->hasOtherParent($household, (int) $member->id)) {
-            return response()->json(JsonUtf8Sanitizer::sanitize([
-                'message' => "Vous êtes le dernier parent de ce foyer. Désignez un nouveau parent ou supprimez ce foyer avant de le quitter.",
-                'required_action' => 'define_new_parent_or_delete_household',
-                'household' => [
-                    'id' => (int) $household->id,
-                    'name' => (string) $household->name,
-                ],
-                'candidate_members' => $this->resolveParentReplacementCandidates($household, (int) $member->id),
-            ]), 422);
-        }
-
-        DB::transaction(function () use ($household, $member): void {
-            $household->users()->detach((int) $member->id);
-            BudgetSetting::query()
-                ->where('household_id', (int) $household->id)
-                ->where('user_id', (int) $member->id)
-                ->delete();
-        });
-
-        $freshUser = User::query()
-            ->whereKey($member->id)
-            ->with('households')
-            ->firstOrFail();
+        $freshUser = $this->leaveHouseholdAction->execute(
+            household: $household,
+            member: $member,
+        );
 
         return response()->json(JsonUtf8Sanitizer::sanitize([
             'message' => 'Vous avez quitté ce foyer.',
