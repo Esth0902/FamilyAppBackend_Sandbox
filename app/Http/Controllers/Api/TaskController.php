@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Api;
 
 use App\Actions\Tasks\ToggleTaskStatusAction;
 use App\Actions\Tasks\UpsertTaskTemplateAction;
-use App\Http\Controllers\Api\Concerns\ResolvesDateRange;
 use App\Http\Controllers\Api\Concerns\ResolvesHouseholdContext;
 use App\Http\Controllers\Controller;
 use App\Models\Household;
@@ -13,6 +12,7 @@ use App\Models\TaskInstance;
 use App\Models\TaskTemplate;
 use App\Models\User;
 use App\Models\UserNotification;
+use App\Services\NotificationService;
 use App\Services\RealtimePublisher;
 use Carbon\Carbon;
 use Carbon\CarbonPeriod;
@@ -21,10 +21,10 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use App\Support\Normalization;
 
 class TaskController extends Controller
 {
-    use ResolvesDateRange;
     use ResolvesHouseholdContext;
 
     private const STATUS_TODO = "\u{00E0} faire";
@@ -36,6 +36,7 @@ class TaskController extends Controller
 
     public function __construct(
         private readonly RealtimePublisher $realtimePublisher,
+        private readonly NotificationService $notificationService,
         private readonly UpsertTaskTemplateAction $upsertTaskTemplateAction,
         private readonly ToggleTaskStatusAction $toggleTaskStatusAction,
     ) {
@@ -44,7 +45,7 @@ class TaskController extends Controller
     public function board(Request $request): JsonResponse
     {
         [$household, $role] = $this->resolveHouseholdWithRole($request);
-        [$fromDate, $toDate] = $this->resolveDateRange($request, self::DEFAULT_RANGE_DAYS, self::MAX_RANGE_DAYS);
+        [$fromDate, $toDate] = Normalization::dateRange($request, self::DEFAULT_RANGE_DAYS, self::MAX_RANGE_DAYS);
 
         $tasksEnabled = $this->isTasksModuleEnabled($household);
         $members = $this->resolveHouseholdMembers($household);
@@ -114,8 +115,8 @@ class TaskController extends Controller
                     'start_date' => $this->resolveTemplateStartDateValue($template),
                     'end_date' => optional($template->end_date)->toDateString(),
                     'recurrence_days' => $this->normalizeRecurrenceDaysInput($template->recurrence_days),
-                    'assignee_user_ids' => $this->normalizeMemberIdsInput($template->assignee_user_ids),
-                    'rotation_user_ids' => $this->normalizeMemberIdsInput($template->rotation_user_ids),
+                    'assignee_user_ids' => Normalization::memberIds($template->assignee_user_ids),
+                    'rotation_user_ids' => Normalization::memberIds($template->rotation_user_ids),
                     'is_rotation' => (bool) $template->is_rotation,
                     'rotation_cycle_weeks' => max(1, min(2, (int) ($template->rotation_cycle_weeks ?? 1))),
                     'is_inter_household_alternating' => (bool) ($template->is_inter_household_alternating ?? false),
@@ -157,8 +158,8 @@ class TaskController extends Controller
                         'start_date' => $this->resolveTemplateStartDateValue($instance->template),
                         'end_date' => optional($instance->template?->end_date)->toDateString(),
                         'recurrence_days' => $this->normalizeRecurrenceDaysInput($instance->template?->recurrence_days),
-                        'assignee_user_ids' => $this->normalizeMemberIdsInput($instance->template?->assignee_user_ids),
-                        'rotation_user_ids' => $this->normalizeMemberIdsInput($instance->template?->rotation_user_ids),
+                        'assignee_user_ids' => Normalization::memberIds($instance->template?->assignee_user_ids),
+                        'rotation_user_ids' => Normalization::memberIds($instance->template?->rotation_user_ids),
                         'is_rotation' => (bool) ($instance->template?->is_rotation ?? false),
                         'rotation_cycle_weeks' => max(1, min(2, (int) ($instance->template?->rotation_cycle_weeks ?? 1))),
                         'is_inter_household_alternating' => (bool) ($instance->template?->is_inter_household_alternating ?? false),
@@ -208,14 +209,14 @@ class TaskController extends Controller
         $householdName = (string) ($household->name ?? 'ce foyer');
         $isRotation = (bool) $template->is_rotation;
         $fixedUserId = $template->fixed_user_id ? (int) $template->fixed_user_id : null;
-        $assigneeUserIds = $this->normalizeMemberIdsInput($template->assignee_user_ids);
-        $rotationUserIds = $this->normalizeMemberIdsInput($template->rotation_user_ids);
+        $assigneeUserIds = Normalization::memberIds($template->assignee_user_ids);
+        $rotationUserIds = Normalization::memberIds($template->rotation_user_ids);
         $routineAssigneeIds = $isRotation ? $rotationUserIds : $assigneeUserIds;
         if (count($routineAssigneeIds) === 0 && $fixedUserId !== null) {
             $routineAssigneeIds = [(int) $fixedUserId];
         }
 
-        $this->notifyUsers(
+        $this->notificationService->notifyUsers(
             userIds: array_values(array_filter($routineAssigneeIds, static fn(int $id): bool => $id !== (int) $request->user()->id)),
             householdId: (int) $household->id,
             type: 'task_routine_assigned',
@@ -253,8 +254,8 @@ class TaskController extends Controller
                 'start_date' => $this->resolveTemplateStartDateValue($template),
                 'end_date' => optional($template->end_date)->toDateString(),
                 'recurrence_days' => $this->normalizeRecurrenceDaysInput($template->recurrence_days),
-                'assignee_user_ids' => $this->normalizeMemberIdsInput($template->assignee_user_ids),
-                'rotation_user_ids' => $this->normalizeMemberIdsInput($template->rotation_user_ids),
+                'assignee_user_ids' => Normalization::memberIds($template->assignee_user_ids),
+                'rotation_user_ids' => Normalization::memberIds($template->rotation_user_ids),
                 'is_rotation' => (bool) $template->is_rotation,
                 'rotation_cycle_weeks' => max(1, min(2, (int) ($template->rotation_cycle_weeks ?? 1))),
                 'is_inter_household_alternating' => (bool) ($template->is_inter_household_alternating ?? false),
@@ -317,8 +318,8 @@ class TaskController extends Controller
                 'start_date' => $this->resolveTemplateStartDateValue($template),
                 'end_date' => optional($template->end_date)->toDateString(),
                 'recurrence_days' => $this->normalizeRecurrenceDaysInput($template->recurrence_days),
-                'assignee_user_ids' => $this->normalizeMemberIdsInput($template->assignee_user_ids),
-                'rotation_user_ids' => $this->normalizeMemberIdsInput($template->rotation_user_ids),
+                'assignee_user_ids' => Normalization::memberIds($template->assignee_user_ids),
+                'rotation_user_ids' => Normalization::memberIds($template->rotation_user_ids),
                 'is_rotation' => (bool) $template->is_rotation,
                 'rotation_cycle_weeks' => max(1, min(2, (int) ($template->rotation_cycle_weeks ?? 1))),
                 'is_inter_household_alternating' => (bool) ($template->is_inter_household_alternating ?? false),
@@ -551,11 +552,11 @@ class TaskController extends Controller
 
         $assigneeIds = [];
         if ($isParent) {
-            $requestedIds = $this->normalizeMemberIdsInput($validated['user_ids'] ?? null);
+            $requestedIds = Normalization::memberIds($validated['user_ids'] ?? null);
             if (!empty($validated['user_id'])) {
                 $requestedIds[] = (int) $validated['user_id'];
             }
-            $requestedIds = $this->normalizeMemberIdsInput($requestedIds);
+            $requestedIds = Normalization::memberIds($requestedIds);
 
             if (count($requestedIds) > 0) {
                 $assigneeIds = $this->ensureUsersBelongToHousehold($requestedIds, $household, 'user_ids');
@@ -567,7 +568,7 @@ class TaskController extends Controller
                 abort(403, 'Un enfant peut uniquement s attribuer ses tâches.');
             }
 
-            $requestedIds = $this->normalizeMemberIdsInput($validated['user_ids'] ?? null);
+            $requestedIds = Normalization::memberIds($validated['user_ids'] ?? null);
             if (count($requestedIds) > 0 && !$this->memberIdsEquals($requestedIds, [$currentUserId])) {
                 abort(403, 'Un enfant peut uniquement s attribuer ses tâches.');
             }
@@ -648,7 +649,7 @@ class TaskController extends Controller
             'assigned_by_name' => (string) ($request->user()->name ?? 'Un membre'),
         ];
 
-        $this->notifyUsers(
+        $this->notificationService->notifyUsers(
             userIds: array_values(array_filter($assigneeIds, static fn(int $id): bool => $id !== $currentUserId)),
             householdId: (int) $household->id,
             type: 'task_assigned',
@@ -663,7 +664,7 @@ class TaskController extends Controller
             ->filter(static fn(int $id): bool => $id > 0 && $id !== $currentUserId)
             ->values()
             ->all();
-        $this->notifyUsers(
+        $this->notificationService->notifyUsers(
             userIds: $allMemberIdsExceptActor,
             householdId: (int) $household->id,
             type: 'calendar_task_added',
@@ -713,7 +714,7 @@ class TaskController extends Controller
 
         $previousStatus = (string) $instance->status;
         $previousValidatedByParent = (bool) $instance->validated_by_parent;
-        $previousAssigneeIds = $this->normalizeMemberIdsInput(
+        $previousAssigneeIds = Normalization::memberIds(
             $instance->assignees
                 ->map(static fn(User $assignee): int => (int) $assignee->id)
                 ->values()
@@ -757,11 +758,11 @@ class TaskController extends Controller
                 abort(403, 'Action réservée aux parents.');
             }
 
-            $requestedIds = $this->normalizeMemberIdsInput($validated['user_ids'] ?? null);
+            $requestedIds = Normalization::memberIds($validated['user_ids'] ?? null);
             if (array_key_exists('user_id', $validated) && !empty($validated['user_id'])) {
                 $requestedIds[] = (int) $validated['user_id'];
             }
-            $requestedIds = $this->normalizeMemberIdsInput($requestedIds);
+            $requestedIds = Normalization::memberIds($requestedIds);
             $requestedIds = $this->ensureUsersBelongToHousehold($requestedIds, $household, 'user_ids');
             if (count($requestedIds) === 0) {
                 throw ValidationException::withMessages([
@@ -808,7 +809,7 @@ class TaskController extends Controller
             'assignees:id,name',
         ]);
 
-        $currentAssigneeIds = $this->normalizeMemberIdsInput(
+        $currentAssigneeIds = Normalization::memberIds(
             $instance->assignees
                 ->map(static fn(User $assignee): int => (int) $assignee->id)
                 ->values()
@@ -832,7 +833,7 @@ class TaskController extends Controller
         ];
 
         if ($previousStatus !== self::STATUS_DONE && (string) $instance->status === self::STATUS_DONE) {
-            $this->notifyUsers(
+            $this->notificationService->notifyUsers(
                 userIds: array_values(array_filter($this->resolveParentUserIds($household), static fn(int $id): bool => $id !== $currentUserId)),
                 householdId: (int) $household->id,
                 type: 'task_done_validation_needed',
@@ -843,7 +844,7 @@ class TaskController extends Controller
         }
 
         if (!$previousValidatedByParent && (bool) $instance->validated_by_parent) {
-            $this->notifyUsers(
+            $this->notificationService->notifyUsers(
                 userIds: $currentAssigneeIds,
                 householdId: (int) $household->id,
                 type: 'task_validated',
@@ -854,7 +855,7 @@ class TaskController extends Controller
         }
 
         if ($previousStatus !== self::STATUS_CANCELLED && (string) $instance->status === self::STATUS_CANCELLED) {
-            $this->notifyUsers(
+            $this->notificationService->notifyUsers(
                 userIds: $currentAssigneeIds,
                 householdId: (int) $household->id,
                 type: 'task_cancelled',
@@ -865,7 +866,7 @@ class TaskController extends Controller
         }
 
         if (!$this->memberIdsEquals($previousAssigneeIds, $currentAssigneeIds)) {
-            $this->notifyUsers(
+            $this->notificationService->notifyUsers(
                 userIds: array_values(array_filter($currentAssigneeIds, static fn(int $id): bool => $id !== $currentUserId)),
                 householdId: (int) $household->id,
                 type: 'task_reassigned',
@@ -886,7 +887,7 @@ class TaskController extends Controller
             ->all();
         $statusNow = (string) $instance->status;
         $isDeletion = $previousStatus !== self::STATUS_CANCELLED && $statusNow === self::STATUS_CANCELLED;
-        $this->notifyUsers(
+        $this->notificationService->notifyUsers(
             userIds: $allMemberIdsExceptActor,
             householdId: (int) $household->id,
             type: $isDeletion ? 'calendar_task_deleted' : 'calendar_task_updated',
@@ -936,7 +937,7 @@ class TaskController extends Controller
             'assignees:id,name',
         ]);
 
-        $assigneeIds = $this->normalizeMemberIdsInput(
+        $assigneeIds = Normalization::memberIds(
             $instance->assignees
                 ->map(static fn(User $assignee): int => (int) $assignee->id)
                 ->values()
@@ -959,7 +960,7 @@ class TaskController extends Controller
             'validated_by_name' => (string) ($request->user()->name ?? 'Parent'),
         ];
 
-        $this->notifyUsers(
+        $this->notificationService->notifyUsers(
             userIds: $assigneeIds,
             householdId: (int) $household->id,
             type: 'task_validated',
@@ -975,7 +976,7 @@ class TaskController extends Controller
             ->filter(static fn(int $id): bool => $id > 0 && $id !== $actorId)
             ->values()
             ->all();
-        $this->notifyUsers(
+        $this->notificationService->notifyUsers(
             userIds: $allMemberIdsExceptActor,
             householdId: (int) $household->id,
             type: 'calendar_task_updated',
@@ -1027,8 +1028,8 @@ class TaskController extends Controller
                 'start_date' => $this->resolveTemplateStartDateValue($instance->template),
                 'end_date' => optional($instance->template?->end_date)->toDateString(),
                 'recurrence_days' => $this->normalizeRecurrenceDaysInput($instance->template?->recurrence_days),
-                'assignee_user_ids' => $this->normalizeMemberIdsInput($instance->template?->assignee_user_ids),
-                'rotation_user_ids' => $this->normalizeMemberIdsInput($instance->template?->rotation_user_ids),
+                'assignee_user_ids' => Normalization::memberIds($instance->template?->assignee_user_ids),
+                'rotation_user_ids' => Normalization::memberIds($instance->template?->rotation_user_ids),
                 'is_rotation' => (bool) ($instance->template?->is_rotation ?? false),
                 'rotation_cycle_weeks' => max(1, min(2, (int) ($instance->template?->rotation_cycle_weeks ?? 1))),
                 'is_inter_household_alternating' => (bool) ($instance->template?->is_inter_household_alternating ?? false),
@@ -1045,71 +1046,6 @@ class TaskController extends Controller
             type: $type,
             payload: $payload + ['household_id' => $householdId],
         );
-    }
-
-    private function notifyUser(
-        int $userId,
-        int $householdId,
-        string $type,
-        string $title,
-        string $body,
-        array $data = []
-    ): void {
-        if ($userId <= 0 || $householdId <= 0) {
-            return;
-        }
-
-        $notification = UserNotification::query()->create([
-            'household_id' => $householdId,
-            'user_id' => $userId,
-            'type' => $type,
-            'title' => $title,
-            'body' => $body,
-            'data' => $data + [
-                'household_id' => $householdId,
-            ],
-        ]);
-
-        $this->realtimePublisher->publishUser(
-            userId: $userId,
-            module: 'notifications',
-            type: 'notification_created',
-            payload: [
-                'notification_id' => (int) $notification->id,
-                'household_id' => $householdId,
-                'type' => $type,
-                'title' => $title,
-                'body' => $body,
-            ],
-        );
-    }
-
-    /**
-     * @param array<int, int> $userIds
-     */
-    private function notifyUsers(
-        array $userIds,
-        int $householdId,
-        string $type,
-        string $title,
-        string $body,
-        array $data = []
-    ): void {
-        $uniqueIds = collect($this->normalizeMemberIdsInput($userIds))
-            ->unique()
-            ->values()
-            ->all();
-
-        foreach ($uniqueIds as $userId) {
-            $this->notifyUser(
-                userId: (int) $userId,
-                householdId: $householdId,
-                type: $type,
-                title: $title,
-                body: $body,
-                data: $data,
-            );
-        }
     }
 
     /**
@@ -1202,7 +1138,7 @@ class TaskController extends Controller
             ->first();
         $tasksConfig = is_array($settings?->tasks_config) ? $settings->tasks_config : [];
         $enabled = (bool) ($tasksConfig['alternating_custody_enabled'] ?? false);
-        $changeDay = $this->normalizeIsoWeekDay($tasksConfig['custody_change_day'] ?? 5, 5);
+        $changeDay = Normalization::isoWeekDay($tasksConfig['custody_change_day'] ?? 5, 5);
         $homeWeekStart = $this->resolveCustodyHomeWeekStart(
             $enabled,
             $tasksConfig['custody_home_week_start'] ?? null,
@@ -1238,7 +1174,7 @@ class TaskController extends Controller
             return true;
         }
 
-        $changeDay = $this->normalizeIsoWeekDay($alternatingCustody['change_day'] ?? 5, 5);
+        $changeDay = Normalization::isoWeekDay($alternatingCustody['change_day'] ?? 5, 5);
         $homeWeekStartRaw = (string) ($alternatingCustody['home_week_start'] ?? '');
         if ($homeWeekStartRaw === '') {
             return true;
@@ -1521,7 +1457,7 @@ class TaskController extends Controller
             return true;
         }
 
-        $weekStartDay = $this->normalizeIsoWeekDay($interHouseholdWeekStartDay, 1);
+        $weekStartDay = Normalization::isoWeekDay($interHouseholdWeekStartDay, 1);
         $alternationStartBase = $template->inter_household_week_start
             ? Carbon::parse($template->inter_household_week_start)->startOfDay()
             : $anchor->copy()->startOfDay();
@@ -1544,7 +1480,7 @@ class TaskController extends Controller
             ->all();
 
         if ((bool) $template->is_rotation) {
-            $rotationUserIds = collect($this->normalizeMemberIdsInput($template->rotation_user_ids))
+            $rotationUserIds = collect(Normalization::memberIds($template->rotation_user_ids))
                 ->filter(static fn(int $id): bool => in_array($id, $memberIds, true))
                 ->values();
 
@@ -1569,7 +1505,7 @@ class TaskController extends Controller
             return [(int) ($rotationUserIds->get($assigneeIndex) ?? 0)];
         }
 
-        $assigneeIds = collect($this->normalizeMemberIdsInput($template->assignee_user_ids))
+        $assigneeIds = collect(Normalization::memberIds($template->assignee_user_ids))
             ->filter(static fn(int $id): bool => in_array($id, $memberIds, true))
             ->values();
 
@@ -1585,7 +1521,7 @@ class TaskController extends Controller
 
     private function resolvePrimaryAssigneeId(array $assigneeIds): int
     {
-        return (int) ($this->normalizeMemberIdsInput($assigneeIds)[0] ?? 0);
+        return (int) (Normalization::memberIds($assigneeIds)[0] ?? 0);
     }
 
     private function resolveTemplateStartDate(string $recurrence, mixed $rawStartDate, ?TaskTemplate $template): ?string
@@ -1673,7 +1609,7 @@ class TaskController extends Controller
         $startDate = is_string($rawWeekStart) && trim($rawWeekStart) !== ''
             ? Carbon::createFromFormat('Y-m-d', trim($rawWeekStart))->startOfDay()
             : now()->startOfDay();
-        $normalizedWeekStartDay = $this->normalizeIsoWeekDay($weekStartDay, 1);
+        $normalizedWeekStartDay = Normalization::isoWeekDay($weekStartDay, 1);
 
         return $this->startOfCustomWeek($startDate, $normalizedWeekStartDay)->toDateString();
     }
@@ -1684,17 +1620,7 @@ class TaskController extends Controller
             return 1;
         }
 
-        return $this->normalizeIsoWeekDay($alternatingCustody['change_day'] ?? 1, 1);
-    }
-
-    private function normalizeIsoWeekDay(mixed $value, int $default = 1): int
-    {
-        $parsed = (int) $value;
-        if ($parsed < 1 || $parsed > 7) {
-            return $default;
-        }
-
-        return $parsed;
+        return Normalization::isoWeekDay($alternatingCustody['change_day'] ?? 1, 1);
     }
 
     private function resolveCustodyHomeWeekStart(bool $isEnabled, mixed $rawDate, int $changeDay): ?string
@@ -1777,33 +1703,10 @@ class TaskController extends Controller
         return $days;
     }
 
-    /**
-     * @return array<int, int>
-     */
-    private function normalizeMemberIdsInput(mixed $value): array
-    {
-        if (!is_array($value)) {
-            return [];
-        }
-
-        $ids = [];
-        foreach ($value as $candidate) {
-            $id = (int) $candidate;
-            if ($id <= 0) {
-                continue;
-            }
-            if (!in_array($id, $ids, true)) {
-                $ids[] = $id;
-            }
-        }
-
-        return $ids;
-    }
-
     private function memberIdsEquals(array $left, array $right): bool
     {
-        $leftNormalized = $this->normalizeMemberIdsInput($left);
-        $rightNormalized = $this->normalizeMemberIdsInput($right);
+        $leftNormalized = Normalization::memberIds($left);
+        $rightNormalized = Normalization::memberIds($right);
         sort($leftNormalized);
         sort($rightNormalized);
 
@@ -1816,7 +1719,7 @@ class TaskController extends Controller
      */
     private function ensureUsersBelongToHousehold(array $userIds, Household $household, string $field): array
     {
-        $normalizedIds = $this->normalizeMemberIdsInput($userIds);
+        $normalizedIds = Normalization::memberIds($userIds);
         foreach ($normalizedIds as $userId) {
             $exists = $household->users()
                 ->where('users.id', $userId)
@@ -1857,7 +1760,7 @@ class TaskController extends Controller
      */
     private function syncInstanceAssignees(TaskInstance $instance, array $assigneeIds): void
     {
-        $normalized = $this->normalizeMemberIdsInput($assigneeIds);
+        $normalized = Normalization::memberIds($assigneeIds);
         if (count($normalized) === 0) {
             $fallbackUserId = (int) $instance->user_id;
             if ($fallbackUserId > 0) {
@@ -1879,3 +1782,4 @@ class TaskController extends Controller
         $instance->unsetRelation('assignees');
     }
 }
+

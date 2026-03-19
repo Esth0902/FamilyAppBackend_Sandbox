@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers\Api;
 
-use App\Http\Controllers\Api\Concerns\ResolvesDateRange;
 use App\Http\Controllers\Api\Concerns\ResolvesHouseholdContext;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Calendar\StoreEventRequest;
@@ -15,9 +14,9 @@ use App\Models\HouseholdSetting;
 use App\Models\MealPlan;
 use App\Models\MealPlanAttendance;
 use App\Models\Recipe;
-use App\Models\UserNotification;
 use App\Models\User;
 use App\Services\CalendarManagerService;
+use App\Services\NotificationService;
 use App\Services\RealtimePublisher;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -25,10 +24,10 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
+use App\Support\Normalization;
 
 class CalendarController extends Controller
 {
-    use ResolvesDateRange;
     use ResolvesHouseholdContext;
 
     private const DEFAULT_RANGE_DAYS = 42;
@@ -37,13 +36,14 @@ class CalendarController extends Controller
     public function __construct(
         private readonly RealtimePublisher $realtimePublisher,
         private readonly CalendarManagerService $calendarManagerService,
+        private readonly NotificationService $notificationService,
     ) {
     }
 
     public function board(Request $request): JsonResponse
     {
         [$household, $role] = $this->resolveHouseholdWithRole($request);
-        [$fromDate, $toDate] = $this->resolveDateRange($request, self::DEFAULT_RANGE_DAYS, self::MAX_RANGE_DAYS);
+        [$fromDate, $toDate] = Normalization::dateRange($request, self::DEFAULT_RANGE_DAYS, self::MAX_RANGE_DAYS);
         $currentUserId = (int) $request->user()->id;
         $currentHouseholdId = (int) $household->id;
         $householdMembers = $household->users()
@@ -1006,7 +1006,7 @@ class CalendarController extends Controller
         $dateLabel = (string) optional($mealPlan->date)->toDateString();
         $statusLabel = $status === 'not_home' ? 'ne mangera pas à la maison' : 'mangera plus tard';
 
-        $this->notifyUsers(
+        $this->notificationService->notifyUsers(
             userIds: $parentIds,
             householdId: (int) $household->id,
             type: 'calendar_meal_presence_updated',
@@ -1040,7 +1040,7 @@ class CalendarController extends Controller
         $actorName = (string) ($actor->name ?? 'Un membre');
         $statusLabel = $status === 'participate' ? 'participe' : 'ne participe pas';
 
-        $this->notifyUsers(
+        $this->notificationService->notifyUsers(
             userIds: $parentIds,
             householdId: (int) $household->id,
             type: 'calendar_event_participation_updated',
@@ -1077,7 +1077,7 @@ class CalendarController extends Controller
             return;
         }
 
-        $this->notifyUsers(
+        $this->notificationService->notifyUsers(
             userIds: $memberIds,
             householdId: (int) $household->id,
             type: $type,
@@ -1104,61 +1104,6 @@ class CalendarController extends Controller
             ->all();
     }
 
-    private function notifyUsers(
-        array $userIds,
-        int $householdId,
-        string $type,
-        string $title,
-        string $body,
-        array $data = []
-    ): void {
-        $ids = collect($userIds)
-            ->map(static fn(mixed $id): int => (int) $id)
-            ->filter(static fn(int $id): bool => $id > 0)
-            ->unique()
-            ->values()
-            ->all();
-
-        foreach ($ids as $userId) {
-            $this->notifyUser($userId, $householdId, $type, $title, $body, $data);
-        }
-    }
-
-    private function notifyUser(
-        int $userId,
-        int $householdId,
-        string $type,
-        string $title,
-        string $body,
-        array $data = []
-    ): void {
-        if ($userId <= 0 || $householdId <= 0) {
-            return;
-        }
-
-        $notification = UserNotification::query()->create([
-            'household_id' => $householdId,
-            'user_id' => $userId,
-            'type' => $type,
-            'title' => $title,
-            'body' => $body,
-            'data' => $data + ['household_id' => $householdId],
-        ]);
-
-        $this->realtimePublisher->publishUser(
-            userId: $userId,
-            module: 'notifications',
-            type: 'notification_created',
-            payload: [
-                'notification_id' => (int) $notification->id,
-                'household_id' => $householdId,
-                'type' => $type,
-                'title' => $title,
-                'body' => $body,
-            ],
-        );
-    }
-
     private function mealTypeLabel(string $mealType): string
     {
         return match ($mealType) {
@@ -1178,3 +1123,4 @@ class CalendarController extends Controller
         );
     }
 }
+

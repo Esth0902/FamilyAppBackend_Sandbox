@@ -120,13 +120,15 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'must.change.password'])->gro
     Route::delete('/shopping-lists/items/{item}', [ShoppingListController::class, 'removeItem']);
 
     // Budget
-    Route::get('/budget/board', [BudgetController::class, 'board']);
-    Route::patch('/budget/settings/{user}', [BudgetController::class, 'updateSetting']);
-    Route::post('/budget/adjustments', [BudgetController::class, 'createAdjustment']);
-    Route::patch('/budget/adjustments/{transaction}', [BudgetController::class, 'updateAdjustment']);
-    Route::delete('/budget/adjustments/{transaction}', [BudgetController::class, 'deleteAdjustment']);
-    Route::post('/budget/payments', [BudgetController::class, 'validatePayment']);
-    Route::post('/budget/advances', [BudgetController::class, 'requestAdvance']);
-    Route::post('/budget/reimbursements', [BudgetController::class, 'requestReimbursement']);
-    Route::post('/budget/advances/{transaction}/review', [BudgetController::class, 'reviewAdvance']);
+    Route::middleware('household.context')->group(function (): void {
+        Route::get('/budget/board', [BudgetController::class, 'board']);
+        Route::patch('/budget/settings/{user}', [BudgetController::class, 'updateSetting']);
+        Route::post('/budget/adjustments', [BudgetController::class, 'createAdjustment']);
+        Route::patch('/budget/adjustments/{transaction}', [BudgetController::class, 'updateAdjustment']);
+        Route::delete('/budget/adjustments/{transaction}', [BudgetController::class, 'deleteAdjustment']);
+        Route::post('/budget/payments', [BudgetController::class, 'validatePayment']);
+        Route::post('/budget/advances', [BudgetController::class, 'requestAdvance']);
+        Route::post('/budget/reimbursements', [BudgetController::class, 'requestReimbursement']);
+        Route::post('/budget/advances/{transaction}/review', [BudgetController::class, 'reviewAdvance']);
+    });
 });

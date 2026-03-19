@@ -2,14 +2,19 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Actions\Budget\RequestAdvanceAction;
+use App\DTOs\Budget\AdvanceRequestDTO;
+use App\Domain\Budget\Services\BudgetCalculationService;
 use App\Http\Controllers\Api\Concerns\ResolvesHouseholdContext;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Budget\RequestAdvanceRequest;
+use App\Http\Resources\Budget\TransactionResource;
 use App\Models\BudgetSetting;
 use App\Models\Household;
 use App\Models\HouseholdSetting;
 use App\Models\PocketMoneyTransaction;
 use App\Models\User;
-use App\Models\UserNotification;
+use App\Services\NotificationService;
 use App\Services\RealtimePublisher;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -36,7 +41,12 @@ class BudgetController extends Controller
     private const PAYOUT_MODE_IMMEDIATE = 'immediate';
     private const COMMENT_META_PREFIX = '[budget-meta]';
 
-    public function __construct(private readonly RealtimePublisher $realtimePublisher)
+    public function __construct(
+        private readonly RealtimePublisher $realtimePublisher,
+        private readonly NotificationService $notificationService,
+        private readonly RequestAdvanceAction $requestAdvanceAction,
+        private readonly BudgetCalculationService $budgetCalculationService,
+    )
     {
     }
 
@@ -220,7 +230,7 @@ class BudgetController extends Controller
 
             $resetCount = $this->resetCurrentPeriodAdjustmentsForChild((int) $household->id, (int) $child->id, $setting);
 
-            $this->notifyUser(
+            $this->notificationService->notifyUser(
                 (int) $child->id,
                 (int) $household->id,
                 'budget_negative_carried_over',
@@ -272,7 +282,7 @@ class BudgetController extends Controller
         $resetCount = $this->resetCurrentPeriodAdjustmentsForChild((int) $household->id, (int) $child->id, $setting);
         $transaction->load('user:id,name');
 
-        $this->notifyUser(
+        $this->notificationService->notifyUser(
             (int) $child->id,
             (int) $household->id,
             'budget_payment_validated',
@@ -328,7 +338,7 @@ class BudgetController extends Controller
 
         $transaction->load('user:id,name');
 
-        $this->notifyUser(
+        $this->notificationService->notifyUser(
             (int) $child->id,
             (int) $household->id,
             'budget_adjustment_added',
@@ -383,7 +393,7 @@ class BudgetController extends Controller
         $transaction->load('user:id,name');
 
         $isBonus = $nextType === self::TYPE_BONUS;
-        $this->notifyUser(
+        $this->notificationService->notifyUser(
             (int) $transaction->user_id,
             (int) $household->id,
             'budget_adjustment_updated',
@@ -429,7 +439,7 @@ class BudgetController extends Controller
 
         $transaction->delete();
 
-        $this->notifyUser(
+        $this->notificationService->notifyUser(
             $childUserId,
             (int) $household->id,
             'budget_adjustment_deleted',
@@ -456,47 +466,31 @@ class BudgetController extends Controller
             'deleted_transaction_id' => $transactionId,
         ]);
     }
-    public function requestAdvance(Request $request): JsonResponse
+    public function requestAdvance(RequestAdvanceRequest $request): JsonResponse
     {
-        [$household, $role] = $this->resolveHouseholdWithRole($request);
+        $household = $request->household();
         $this->ensureBudgetModuleEnabled($household);
-        if ($role !== User::ROLE_CHILD) {
+        if ($request->householdRole() !== User::ROLE_CHILD) {
             abort(403, 'Action réservée aux enfants.');
         }
 
-        $validated = $request->validate([
-            'amount' => ['required', 'numeric', 'gt:0'],
-            'comment' => ['required', 'string', 'min:4', 'max:1000'],
-        ]);
+        $validated = $request->validated();
 
-        $currentUser = $request->user();
-        $setting = BudgetSetting::query()
-            ->where('household_id', $household->id)
-            ->where('user_id', $currentUser->id)
-            ->first();
-
-        if (!$setting) {
-            abort(403, 'Aucun paramètre budget configuré pour cet enfant.');
-        }
-        if (!(bool) $setting->allow_advances) {
-            abort(403, 'Les avances sont désactivées pour ce budget.');
-        }
-
-        $requestedAmount = abs((float) $validated['amount']);
-        $maxAdvanceAmount = (float) $setting->max_advance_amount;
-        if ($maxAdvanceAmount <= 0 || $requestedAmount > $maxAdvanceAmount) {
-            throw ValidationException::withMessages([
-                'amount' => ["Le montant demandé dépasse la limite autorisée ({$maxAdvanceAmount})."],
-            ]);
-        }
-
-        return $this->createChildRequest(
-            household: $household,
-            currentUser: $currentUser,
-            amount: $requestedAmount,
+        $dto = new AdvanceRequestDTO(
+            amount: abs((float) $validated['amount']),
             comment: trim((string) $validated['comment']),
-            requestKind: self::REQUEST_KIND_ADVANCE,
         );
+
+        $transaction = $this->requestAdvanceAction->execute(
+            household: $household,
+            currentUser: $request->user(),
+            dto: $dto,
+        );
+
+        return $this->budgetJson([
+            'message' => 'Demande d\'avance envoyée.',
+            'transaction' => (new TransactionResource($transaction))->resolve(),
+        ], 201);
     }
 
     public function requestReimbursement(Request $request): JsonResponse
@@ -636,7 +630,7 @@ class BudgetController extends Controller
             ? ' et payée immédiatement'
             : ($payoutMode === self::PAYOUT_MODE_INTEGRATED ? ' et intégrée au paiement' : '');
 
-        $this->notifyUser(
+        $this->notificationService->notifyUser(
             (int) $transaction->user_id,
             (int) $household->id,
             $isReimbursement ? 'budget_reimbursement_reviewed' : 'budget_advance_reviewed',
@@ -687,7 +681,7 @@ class BudgetController extends Controller
         $tx->load('user:id,name');
 
         $isReimbursement = $requestKind === self::REQUEST_KIND_REIMBURSEMENT;
-        $this->notifyUsers(
+        $this->notificationService->notifyUsers(
             $this->resolveParentUserIds($household),
             (int) $household->id,
             $isReimbursement ? 'budget_reimbursement_requested' : 'budget_advance_requested',
@@ -768,8 +762,8 @@ class BudgetController extends Controller
     private function toChildBudgetPayload(User $child, ?BudgetSetting $setting, Collection $transactions, Carbon $now): array
     {
         $recurrence = (string) ($setting?->recurrence ?? 'weekly');
-        $resetDay = $this->normalizeResetDay((int) ($setting?->reset_day ?? 1), $recurrence);
-        [$periodStart, $periodEnd] = $this->resolvePeriodBoundaries($recurrence, $resetDay, $now);
+        $resetDay = $this->budgetCalculationService->normalizeResetDay((int) ($setting?->reset_day ?? 1), $recurrence);
+        [$periodStart, $periodEnd] = $this->budgetCalculationService->resolvePeriodBoundaries($recurrence, $resetDay, $now);
 
         $periodTransactions = $transactions->filter(function (PocketMoneyTransaction $tx) use ($periodStart, $periodEnd): bool {
             $date = $tx->created_at ?? $tx->updated_at;
@@ -835,7 +829,11 @@ class BudgetController extends Controller
             'household_id' => (int) $transaction->household_id,
             'user_id' => (int) $transaction->user_id,
             'amount' => abs((float) $transaction->amount),
-            'signed_amount' => $this->signedTransactionAmount($transaction),
+            'signed_amount' => $this->budgetCalculationService->signedTransactionAmount(
+                amount: (float) $transaction->amount,
+                type: (string) $transaction->type,
+                requestKind: $this->resolveAdvanceRequestKind($transaction),
+            ),
             'type' => (string) $transaction->type,
             'status' => (string) $transaction->status,
             'comment' => $displayComment,
@@ -855,59 +853,26 @@ class BudgetController extends Controller
         return $payload;
     }
 
-    private function resolvePeriodBoundaries(string $recurrence, int $resetDay, Carbon $now): array
-    {
-        $today = $now->copy()->startOfDay();
-        if ($recurrence === 'monthly') {
-            $currentMonthStart = $today->copy()->startOfMonth();
-            $periodStart = $this->resolveMonthlyResetDate($currentMonthStart, $resetDay);
-            if ($today->lt($periodStart)) {
-                $periodStart = $this->resolveMonthlyResetDate($currentMonthStart->copy()->subMonthNoOverflow()->startOfMonth(), $resetDay);
-            }
-            $nextMonth = $periodStart->copy()->addMonthNoOverflow()->startOfMonth();
-            $nextPeriodStart = $this->resolveMonthlyResetDate($nextMonth, $resetDay);
-            return [$periodStart, $nextPeriodStart->copy()->subSecond()];
-        }
-
-        $safeResetDay = max(1, min(7, $resetDay));
-        $delta = ((int) $today->isoWeekday() - $safeResetDay + 7) % 7;
-        $periodStart = $today->copy()->subDays($delta);
-        return [$periodStart, $periodStart->copy()->addDays(7)->subSecond()];
-    }
-
-    private function normalizeResetDay(int $value, string $recurrence): int
-    {
-        return $recurrence === 'monthly' ? max(1, min(31, $value)) : max(1, min(7, $value));
-    }
-
-    private function resolveMonthlyResetDate(Carbon $monthStart, int $resetDay): Carbon
-    {
-        $safeResetDay = max(1, min(31, $resetDay));
-        $day = min($safeResetDay, (int) $monthStart->daysInMonth);
-        return $monthStart->copy()->day($day)->startOfDay();
-    }
-
     private function sumTransactions(Collection $transactions): float
     {
-        return $transactions->sum(fn(PocketMoneyTransaction $tx): float => $this->signedTransactionAmount($tx));
+        return $transactions->sum(function (PocketMoneyTransaction $tx): float {
+            return $this->budgetCalculationService->signedTransactionAmount(
+                amount: (float) $tx->amount,
+                type: (string) $tx->type,
+                requestKind: $this->resolveAdvanceRequestKind($tx),
+            );
+        });
     }
 
     private function sumTransactionsByType(Collection $transactions, string $type): float
     {
-        return $transactions->where('type', $type)->sum(fn(PocketMoneyTransaction $tx): float => $this->signedTransactionAmount($tx));
-    }
-
-    private function signedTransactionAmount(PocketMoneyTransaction $transaction): float
-    {
-        $amount = abs((float) $transaction->amount);
-        $type = (string) $transaction->type;
-        if ($type === self::TYPE_PENALTY) {
-            return -$amount;
-        }
-        if ($type === self::TYPE_ADVANCE && $this->resolveAdvanceRequestKind($transaction) === self::REQUEST_KIND_REIMBURSEMENT) {
-            return 0.0;
-        }
-        return $amount;
+        return $transactions->where('type', $type)->sum(function (PocketMoneyTransaction $tx): float {
+            return $this->budgetCalculationService->signedTransactionAmount(
+                amount: (float) $tx->amount,
+                type: (string) $tx->type,
+                requestKind: $this->resolveAdvanceRequestKind($tx),
+            );
+        });
     }
 
     private function mergeTransactionComment(?string $existingComment, string $reviewComment): ?string
@@ -989,8 +954,8 @@ class BudgetController extends Controller
     private function resetCurrentPeriodAdjustmentsForChild(int $householdId, int $childUserId, ?BudgetSetting $setting): int
     {
         $recurrence = (string) ($setting?->recurrence ?? 'weekly');
-        $resetDay = $this->normalizeResetDay((int) ($setting?->reset_day ?? 1), $recurrence);
-        [$periodStart, $periodEnd] = $this->resolvePeriodBoundaries($recurrence, $resetDay, now());
+        $resetDay = $this->budgetCalculationService->normalizeResetDay((int) ($setting?->reset_day ?? 1), $recurrence);
+        [$periodStart, $periodEnd] = $this->budgetCalculationService->resolvePeriodBoundaries($recurrence, $resetDay, now());
 
         $adjustments = PocketMoneyTransaction::query()
             ->where('household_id', $householdId)
@@ -1017,8 +982,8 @@ class BudgetController extends Controller
     private function computeCurrentPeriodRemainingRaw(int $householdId, int $childUserId, ?BudgetSetting $setting): array
     {
         $recurrence = (string) ($setting?->recurrence ?? 'weekly');
-        $resetDay = $this->normalizeResetDay((int) ($setting?->reset_day ?? 1), $recurrence);
-        [$periodStart, $periodEnd] = $this->resolvePeriodBoundaries($recurrence, $resetDay, now());
+        $resetDay = $this->budgetCalculationService->normalizeResetDay((int) ($setting?->reset_day ?? 1), $recurrence);
+        [$periodStart, $periodEnd] = $this->budgetCalculationService->resolvePeriodBoundaries($recurrence, $resetDay, now());
 
         $transactions = PocketMoneyTransaction::query()
             ->where('household_id', $householdId)
@@ -1043,8 +1008,13 @@ class BudgetController extends Controller
             ->where('type', self::TYPE_ALLOCATION)
             ->sum(static fn(PocketMoneyTransaction $tx): float => abs((float) $tx->amount));
 
-        $totalExpected = $baseAmount + $bonusTotal + $penaltyTotal - $advanceToDeduct;
-        $remainingRaw = $totalExpected - $alreadyPaid;
+        $remainingRaw = $this->budgetCalculationService->calculateRemainingRaw(
+            baseAmount: $baseAmount,
+            bonusTotal: $bonusTotal,
+            penaltyTotal: $penaltyTotal,
+            advanceToDeduct: $advanceToDeduct,
+            alreadyPaid: $alreadyPaid,
+        );
 
         return [$remainingRaw, $periodStart, $periodEnd];
     }
@@ -1064,44 +1034,6 @@ class BudgetController extends Controller
         );
     }
 
-    private function notifyUser(int $userId, int $householdId, string $type, string $title, string $body, array $data = []): void
-    {
-        if ($userId <= 0 || $householdId <= 0) {
-            return;
-        }
-
-        $notification = UserNotification::query()->create([
-            'household_id' => $householdId,
-            'user_id' => $userId,
-            'type' => $type,
-            'title' => $title,
-            'body' => $body,
-            'data' => $data + ['household_id' => $householdId],
-        ]);
-
-        $this->realtimePublisher->publishUser(
-            userId: $userId,
-            module: 'notifications',
-            type: 'notification_created',
-            payload: [
-                'notification_id' => (int) $notification->id,
-                'household_id' => $householdId,
-                'type' => $type,
-                'title' => $title,
-                'body' => $body,
-            ],
-        );
-    }
-
-    /** @param array<int,int> $userIds */
-    private function notifyUsers(array $userIds, int $householdId, string $type, string $title, string $body, array $data = []): void
-    {
-        $ids = collect($userIds)->map(static fn(mixed $id): int => (int) $id)->filter(static fn(int $id): bool => $id > 0)->unique()->values()->all();
-        foreach ($ids as $userId) {
-            $this->notifyUser((int) $userId, $householdId, $type, $title, $body, $data);
-        }
-    }
-
     /** @return array<int,int> */
     private function resolveParentUserIds(Household $household): array
     {
@@ -1114,3 +1046,4 @@ class BudgetController extends Controller
             ->all();
     }
 }
+

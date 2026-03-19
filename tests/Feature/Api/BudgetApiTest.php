@@ -68,10 +68,14 @@ class BudgetApiTest extends TestCase
             'comment' => 'Besoin pour la sortie scolaire',
         ])
             ->assertCreated()
+            ->assertJsonPath('message', 'Demande d\'avance envoyée.')
             ->assertJsonPath('transaction.type', 'advance')
             ->assertJsonPath('transaction.status', 'pending')
             ->assertJsonPath('transaction.amount', 10.0)
-            ->assertJsonPath('transaction.user_id', $child->id);
+            ->assertJsonPath('transaction.user_id', $child->id)
+            ->assertJsonPath('transaction.request_kind', 'advance')
+            ->assertJsonPath('transaction.payout_mode', null)
+            ->assertJsonPath('transaction.user.id', $child->id);
 
         $this->assertDatabaseHas('pocket_money_transactions', [
             'household_id' => $household->id,
@@ -89,6 +93,80 @@ class BudgetApiTest extends TestCase
 
         $this->assertNotNull($notification);
         $this->assertSame('Besoin pour la sortie scolaire', data_get($notification?->data, 'justification'));
+    }
+
+    public function test_child_request_advance_uses_household_context_header(): void
+    {
+        [$parentA, $child, $householdA] = $this->createHouseholdWithBudgetModule();
+        BudgetSetting::query()->create([
+            'household_id' => $householdA->id,
+            'user_id' => $child->id,
+            'base_amount' => 20,
+            'recurrence' => 'weekly',
+            'reset_day' => 1,
+            'allow_advances' => true,
+            'max_advance_amount' => 5,
+        ]);
+
+        $parentB = User::factory()->create([
+            'must_change_password' => false,
+        ]);
+        $householdB = Household::query()->create([
+            'name' => 'Foyer secondaire budget',
+        ]);
+
+        $householdB->users()->attach($parentB->id, ['role' => User::ROLE_PARENT]);
+        $householdB->users()->attach($child->id, ['role' => User::ROLE_CHILD]);
+        HouseholdSetting::query()->create([
+            'household_id' => $householdB->id,
+            'has_budget' => true,
+        ]);
+        BudgetSetting::query()->create([
+            'household_id' => $householdB->id,
+            'user_id' => $child->id,
+            'base_amount' => 20,
+            'recurrence' => 'weekly',
+            'reset_day' => 1,
+            'allow_advances' => true,
+            'max_advance_amount' => 15,
+        ]);
+
+        Sanctum::actingAs($child);
+
+        $this->withHeader('X-Household-Id', (string) $householdB->id)
+            ->postJson('/api/budget/advances', [
+                'amount' => 10,
+                'comment' => 'Besoin pour le foyer secondaire',
+            ])
+            ->assertCreated()
+            ->assertJsonPath('transaction.household_id', $householdB->id)
+            ->assertJsonPath('transaction.user_id', $child->id)
+            ->assertJsonPath('transaction.amount', 10.0);
+
+        $this->assertDatabaseHas('pocket_money_transactions', [
+            'household_id' => $householdB->id,
+            'user_id' => $child->id,
+            'type' => 'advance',
+            'status' => 'pending',
+            'amount' => 10,
+        ]);
+
+        $this->assertDatabaseMissing('pocket_money_transactions', [
+            'household_id' => $householdA->id,
+            'user_id' => $child->id,
+            'type' => 'advance',
+            'status' => 'pending',
+            'amount' => 10,
+        ]);
+
+        $this->assertDatabaseHas('user_notifications', [
+            'user_id' => $parentB->id,
+            'type' => 'budget_advance_requested',
+        ]);
+        $this->assertDatabaseMissing('user_notifications', [
+            'user_id' => $parentA->id,
+            'type' => 'budget_advance_requested',
+        ]);
     }
 
     public function test_child_cannot_request_advance_above_limit(): void
