@@ -5,7 +5,9 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Api\Concerns\ResolvesDateRange;
 use App\Http\Controllers\Api\Concerns\ResolvesHouseholdContext;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Calendar\StoreEventRequest;
 use App\Http\Requests\Calendar\StoreMealPlanRequest;
+use App\Http\Requests\Calendar\UpdateEventRequest;
 use App\Models\Event;
 use App\Models\EventParticipation;
 use App\Models\Household;
@@ -147,18 +149,12 @@ class CalendarController extends Controller
         ]);
     }
 
-    public function storeEvent(Request $request): JsonResponse
+    public function storeEvent(StoreEventRequest $request): JsonResponse
     {
         [$household, $role] = $this->resolveHouseholdWithRole($request);
         $this->ensureCalendarModuleEnabled($household);
 
-        $validated = $request->validate([
-            'title' => ['required', 'string', 'max:255'],
-            'description' => ['nullable', 'string', 'max:1000'],
-            'start_at' => ['required', 'date'],
-            'end_at' => ['required', 'date', 'after_or_equal:start_at'],
-            'is_shared_with_other_household' => ['nullable', 'boolean'],
-        ]);
+        $validated = $request->validated();
 
         $calendarSettings = $this->resolveCalendarSettings($household);
         $shouldShare = (bool) ($validated['is_shared_with_other_household'] ?? false);
@@ -231,20 +227,14 @@ class CalendarController extends Controller
         ], 201);
     }
 
-    public function updateEvent(Request $request, Event $event): JsonResponse
+    public function updateEvent(UpdateEventRequest $request, Event $event): JsonResponse
     {
         [$household, $role] = $this->resolveHouseholdWithRole($request);
         $this->ensureCalendarModuleEnabled($household);
         $this->ensureEventBelongsToHousehold($event, $household);
         $this->ensureEventCanBeManaged($event, (int) $request->user()->id, $role);
 
-        $validated = $request->validate([
-            'title' => ['required', 'string', 'max:255'],
-            'description' => ['nullable', 'string', 'max:1000'],
-            'start_at' => ['required', 'date'],
-            'end_at' => ['required', 'date', 'after_or_equal:start_at'],
-            'is_shared_with_other_household' => ['nullable', 'boolean'],
-        ]);
+        $validated = $request->validated();
 
         $calendarSettings = $this->resolveCalendarSettings($household);
         $shouldShare = (bool) ($validated['is_shared_with_other_household'] ?? false);

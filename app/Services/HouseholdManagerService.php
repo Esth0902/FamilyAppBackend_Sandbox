@@ -253,6 +253,140 @@ class HouseholdManagerService
             ];
         });
     }
+
+    /**
+     * @param  array<string, mixed>  $validated
+     * @return array{status:int,payload:array<string,mixed>}
+     */
+    public function updateConfiguration(Household $household, User $user, array $validated): array
+    {
+        $updatedByUserId = (int) $user->id;
+        $householdName = trim((string) ($validated['household_name'] ?? $validated['name'] ?? $household->name));
+        if ($householdName === '') {
+            throw ValidationException::withMessages([
+                'household_name' => ['Le nom du foyer est obligatoire.'],
+            ]);
+        }
+
+        $modules = $this->normalizeModuleConfiguration($validated);
+        $this->validateTasksConfiguration($modules['tasks']);
+
+        return DB::transaction(function () use ($household, $householdName, $modules, $updatedByUserId): array {
+            $household->update(['name' => $householdName]);
+
+            $householdSettings = HouseholdSetting::updateOrCreate(
+                ['household_id' => $household->id],
+                [
+                    'has_meals' => $modules['meals']['enabled'],
+                    'has_shopping_list' => $modules['meals']['shopping_list'],
+                    'has_tasks' => $modules['tasks']['enabled'],
+                    'has_budget' => $modules['budget']['enabled'],
+                    'has_calendar' => $modules['calendar']['enabled'],
+                    'tasks_config' => $modules['tasks']['settings'],
+                    'calendar_config' => $modules['calendar']['settings'],
+                    'budget_config' => $modules['budget']['settings'],
+                ]
+            );
+
+            $mealSettings = MealSetting::updateOrCreate(
+                ['household_id' => $household->id],
+                [
+                    'poll_day' => $modules['meals']['poll_day'],
+                    'poll_time' => $modules['meals']['poll_time'],
+                    'poll_duration' => $modules['meals']['poll_duration'],
+                    'enable_recipes' => $modules['meals']['recipes'],
+                    'enable_polls' => $modules['meals']['polls'],
+                    'enable_shopping_list' => $modules['meals']['shopping_list'],
+                    'auto_generate_shopping_list' => $modules['meals']['shopping_list'],
+                    'max_votes_per_user' => $modules['meals']['max_votes_per_user'],
+                    'default_servings' => $modules['meals']['default_servings'],
+                ]
+            );
+
+            $this->syncDietaryTags($household, $modules['meals']['dietary_tags']);
+
+            $updatedTaskTemplates = [];
+            if ($modules['tasks']['enabled']) {
+                $updatedTaskTemplates = $this->upsertTaskTemplates(
+                    $household,
+                    $modules['tasks']['settings']['templates'] ?? []
+                );
+            }
+
+            $enabledModules = [
+                'meals' => (bool) $modules['meals']['enabled'],
+                'tasks' => (bool) $modules['tasks']['enabled'],
+                'budget' => (bool) $modules['budget']['enabled'],
+                'calendar' => (bool) $modules['calendar']['enabled'],
+            ];
+
+            DB::afterCommit(function () use ($household, $householdName, $enabledModules, $updatedByUserId): void {
+                $this->publishHouseholdRealtime(
+                    householdId: (int) $household->id,
+                    type: 'config_updated',
+                    payload: [
+                        'household_name' => (string) $householdName,
+                        'modules' => [
+                            'meals' => ['enabled' => (bool) $enabledModules['meals']],
+                            'tasks' => ['enabled' => (bool) $enabledModules['tasks']],
+                            'budget' => ['enabled' => (bool) $enabledModules['budget']],
+                            'calendar' => ['enabled' => (bool) $enabledModules['calendar']],
+                        ],
+                        'updated_by_user_id' => $updatedByUserId,
+                        'updated_at' => now()->toIso8601String(),
+                    ],
+                );
+            });
+
+            return [
+                'status' => 200,
+                'payload' => [
+                    'message' => 'Configuration du foyer mise à jour.',
+                    'household' => $household->fresh(),
+                    'household_settings' => $householdSettings,
+                    'meal_settings' => $mealSettings,
+                    'updated_task_templates' => $updatedTaskTemplates,
+                ],
+            ];
+        });
+    }
+
+    /**
+     * @return array<int, int>
+     */
+    public function normalizeTaskRecurrenceDaysForConfig(mixed $value): array
+    {
+        return $this->normalizeTaskRecurrenceDays($value);
+    }
+
+    public function normalizeRotationCycleWeeksForConfig(mixed $value): int
+    {
+        return $this->normalizeRotationCycleWeeks($value);
+    }
+
+    public function normalizeIsoWeekDayForConfig(mixed $value, int $default = 1): int
+    {
+        return $this->normalizeIsoWeekDay($value, $default);
+    }
+
+    public function resolveCustodyHomeWeekStartForConfig(bool $isEnabled, mixed $rawDate, int $changeDay): ?string
+    {
+        return $this->resolveCustodyHomeWeekStart($isEnabled, $rawDate, $changeDay);
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function publishHouseholdRealtime(int $householdId, string $type, array $payload = []): void
+    {
+        $this->realtimePublisher->publishHousehold(
+            householdId: $householdId,
+            module: 'household',
+            type: $type,
+            payload: $payload + ['household_id' => $householdId],
+        );
+    }
+
     private function normalizeMembers(array $validated): array
     {
         $members = $validated['members'] ?? [];
