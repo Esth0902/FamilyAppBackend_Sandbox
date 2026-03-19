@@ -2,29 +2,52 @@
 
 namespace App\Actions\Tasks;
 
+use App\DTOs\Tasks\UpsertTaskTemplateDTO;
+use App\Domain\Tasks\Services\TaskRecurrenceService;
+use App\Events\Tasks\TaskTemplateCreatedEvent;
+use App\Events\Tasks\TaskTemplateUpdatedEvent;
 use App\Models\Household;
 use App\Models\HouseholdSetting;
 use App\Models\TaskTemplate;
-use Carbon\Carbon;
+use App\Models\User;
+use App\Support\Normalization;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class UpsertTaskTemplateAction
 {
-    private const FULL_WEEK_DAYS = [1, 2, 3, 4, 5, 6, 7];
-
-    /**
-     * @param  array<string, mixed>  $validated
-     */
-    public function execute(Household $household, array $validated, ?TaskTemplate $template = null): TaskTemplate
+    public function __construct(private readonly TaskRecurrenceService $taskRecurrenceService)
     {
-        return DB::transaction(function () use ($household, $validated, $template): TaskTemplate {
+    }
+
+    public function execute(Household $household, User $actor, UpsertTaskTemplateDTO $payload, ?TaskTemplate $template = null): TaskTemplate
+    {
+        $isCreate = !$template;
+        $validated = $payload->toArray();
+
+        $persistedTemplate = DB::transaction(function () use ($household, $validated, $template): TaskTemplate {
             if (!$template) {
                 return $this->createTemplate($household, $validated);
             }
 
             return $this->updateTemplate($household, $template, $validated);
         });
+
+        if ($isCreate) {
+            event(new TaskTemplateCreatedEvent(
+                template: $persistedTemplate,
+                householdId: (int) $household->id,
+                actorUserId: (int) $actor->id,
+                actorName: (string) ($actor->name ?? 'Un membre'),
+            ));
+        } else {
+            event(new TaskTemplateUpdatedEvent(
+                template: $persistedTemplate,
+                householdId: (int) $household->id,
+            ));
+        }
+
+        return $persistedTemplate;
     }
 
     /**
@@ -33,19 +56,18 @@ class UpsertTaskTemplateAction
     private function createTemplate(Household $household, array $validated): TaskTemplate
     {
         $recurrence = (string) $validated['recurrence'];
-        [$recurrence, $recurrenceDays] = $this->normalizeTemplateRecurrenceAndDays(
+        [$recurrence, $recurrenceDays] = $this->taskRecurrenceService->normalizeTemplateRecurrenceAndDays(
             $recurrence,
-            $validated['recurrence_days'] ?? null
+            $validated['recurrence_days'] ?? null,
         );
-        $startDate = $this->resolveTemplateStartDate(
+        $startDate = $this->taskRecurrenceService->resolveTemplateStartDate(
             $recurrence,
             $validated['start_date'] ?? null,
-            null
         );
-        $endDate = $this->resolveTemplateEndDate(
+        $endDate = $this->taskRecurrenceService->resolveTemplateEndDate(
             $recurrence,
             $validated['end_date'] ?? null,
-            $startDate
+            $startDate,
         );
 
         $isRotation = (bool) ($validated['is_rotation'] ?? false);
@@ -53,8 +75,8 @@ class UpsertTaskTemplateAction
         if ($fixedUserId !== null) {
             $fixedUserId = $this->ensureUserBelongsToHousehold((int) $fixedUserId, $household);
         }
-        $assigneeUserIds = $this->normalizeMemberIdsInput($validated['assignee_user_ids'] ?? null);
-        $rotationUserIds = $this->normalizeMemberIdsInput($validated['rotation_user_ids'] ?? null);
+        $assigneeUserIds = Normalization::memberIds($validated['assignee_user_ids'] ?? null);
+        $rotationUserIds = Normalization::memberIds($validated['rotation_user_ids'] ?? null);
 
         if (!$isRotation && count($assigneeUserIds) === 0 && $fixedUserId !== null) {
             $assigneeUserIds = [$fixedUserId];
@@ -87,11 +109,11 @@ class UpsertTaskTemplateAction
 
         $isInterHouseholdAlternating = (bool) ($validated['is_inter_household_alternating'] ?? false);
         $alternatingCustody = $this->resolveAlternatingCustodySettings($household);
-        $interHouseholdWeekStartDay = $this->resolveInterHouseholdWeekStartDay($alternatingCustody);
-        $interHouseholdWeekStart = $this->resolveInterHouseholdWeekStart(
+        $interHouseholdWeekStartDay = $this->taskRecurrenceService->resolveInterHouseholdWeekStartDay($alternatingCustody);
+        $interHouseholdWeekStart = $this->taskRecurrenceService->resolveInterHouseholdWeekStart(
             $isInterHouseholdAlternating,
             $validated['inter_household_week_start'] ?? null,
-            $interHouseholdWeekStartDay
+            $interHouseholdWeekStartDay,
         );
 
         return TaskTemplate::query()->create([
@@ -119,8 +141,6 @@ class UpsertTaskTemplateAction
      */
     private function updateTemplate(Household $household, TaskTemplate $template, array $validated): TaskTemplate
     {
-        $this->ensureTemplateBelongsToHousehold($template, $household);
-
         if (array_key_exists('fixed_user_id', $validated) && $validated['fixed_user_id'] !== null) {
             $this->ensureUserBelongsToHousehold((int) $validated['fixed_user_id'], $household);
         }
@@ -136,7 +156,7 @@ class UpsertTaskTemplateAction
             $updates['recurrence'] = (string) $validated['recurrence'];
         }
         if (array_key_exists('recurrence_days', $validated)) {
-            $updates['recurrence_days'] = $this->normalizeRecurrenceDaysInput($validated['recurrence_days'] ?? null);
+            $updates['recurrence_days'] = Normalization::recurrenceDays($validated['recurrence_days'] ?? null);
         }
         if (array_key_exists('start_date', $validated)) {
             $updates['start_date'] = $validated['start_date'];
@@ -146,16 +166,16 @@ class UpsertTaskTemplateAction
         }
         if (array_key_exists('assignee_user_ids', $validated)) {
             $updates['assignee_user_ids'] = $this->ensureUsersBelongToHousehold(
-                $this->normalizeMemberIdsInput($validated['assignee_user_ids'] ?? null),
+                Normalization::memberIds($validated['assignee_user_ids'] ?? null),
                 $household,
-                'assignee_user_ids'
+                'assignee_user_ids',
             );
         }
         if (array_key_exists('rotation_user_ids', $validated)) {
             $updates['rotation_user_ids'] = $this->ensureUsersBelongToHousehold(
-                $this->normalizeMemberIdsInput($validated['rotation_user_ids'] ?? null),
+                Normalization::memberIds($validated['rotation_user_ids'] ?? null),
                 $household,
-                'rotation_user_ids'
+                'rotation_user_ids',
             );
         }
         if (array_key_exists('is_rotation', $validated)) {
@@ -178,32 +198,40 @@ class UpsertTaskTemplateAction
         $resolvedRecurrenceDaysInput = array_key_exists('recurrence_days', $updates)
             ? $updates['recurrence_days']
             : $template->recurrence_days;
-        [$resolvedRecurrence, $resolvedRecurrenceDays] = $this->normalizeTemplateRecurrenceAndDays(
+        [$resolvedRecurrence, $resolvedRecurrenceDays] = $this->taskRecurrenceService->normalizeTemplateRecurrenceAndDays(
             $resolvedRecurrenceInput,
-            $resolvedRecurrenceDaysInput
+            $resolvedRecurrenceDaysInput,
         );
         $updates['recurrence'] = $resolvedRecurrence;
         $updates['recurrence_days'] = count($resolvedRecurrenceDays) > 0
             ? $resolvedRecurrenceDays
             : null;
 
+        $templateStartDate = optional($template->start_date)->toDateString();
+        $templateCreatedAt = $template->created_at;
+
         $rawStartDate = array_key_exists('start_date', $updates)
             ? $updates['start_date']
-            : $this->resolveTemplateStartDateValue($template);
-        $resolvedStartDate = $this->resolveTemplateStartDate(
+            : $this->taskRecurrenceService->resolveTemplateStartDateValue(
+                (string) ($template->recurrence ?? 'weekly'),
+                $templateStartDate,
+                $templateCreatedAt,
+            );
+        $resolvedStartDate = $this->taskRecurrenceService->resolveTemplateStartDate(
             $resolvedRecurrence,
             $rawStartDate,
-            $template
+            $templateStartDate,
+            $templateCreatedAt,
         );
         $updates['start_date'] = $resolvedStartDate;
 
         $rawEndDate = array_key_exists('end_date', $updates)
             ? $updates['end_date']
             : optional($template->end_date)->toDateString();
-        $updates['end_date'] = $this->resolveTemplateEndDate(
+        $updates['end_date'] = $this->taskRecurrenceService->resolveTemplateEndDate(
             $resolvedRecurrence,
             $rawEndDate,
-            $resolvedStartDate
+            $resolvedStartDate,
         );
 
         $resolvedIsRotation = (bool) ($updates['is_rotation'] ?? $template->is_rotation);
@@ -213,10 +241,10 @@ class UpsertTaskTemplateAction
 
         $assigneeUserIds = array_key_exists('assignee_user_ids', $updates)
             ? $updates['assignee_user_ids']
-            : $this->normalizeMemberIdsInput($template->assignee_user_ids);
+            : Normalization::memberIds($template->assignee_user_ids);
         $rotationUserIds = array_key_exists('rotation_user_ids', $updates)
             ? $updates['rotation_user_ids']
-            : $this->normalizeMemberIdsInput($template->rotation_user_ids);
+            : Normalization::memberIds($template->rotation_user_ids);
         $fixedUserId = array_key_exists('fixed_user_id', $updates)
             ? $updates['fixed_user_id']
             : ($template->fixed_user_id ? (int) $template->fixed_user_id : null);
@@ -259,15 +287,15 @@ class UpsertTaskTemplateAction
             || array_key_exists('inter_household_week_start', $validated)
         ) {
             $alternatingCustody = $this->resolveAlternatingCustodySettings($household);
-            $interHouseholdWeekStartDay = $this->resolveInterHouseholdWeekStartDay($alternatingCustody);
+            $interHouseholdWeekStartDay = $this->taskRecurrenceService->resolveInterHouseholdWeekStartDay($alternatingCustody);
             $isInterHouseholdAlternating = (bool) ($updates['is_inter_household_alternating'] ?? $template->is_inter_household_alternating);
             $rawInterHouseholdWeekStart = array_key_exists('inter_household_week_start', $updates)
                 ? $updates['inter_household_week_start']
                 : optional($template->inter_household_week_start)->toDateString();
-            $updates['inter_household_week_start'] = $this->resolveInterHouseholdWeekStart(
+            $updates['inter_household_week_start'] = $this->taskRecurrenceService->resolveInterHouseholdWeekStart(
                 $isInterHouseholdAlternating,
                 $rawInterHouseholdWeekStart,
-                $interHouseholdWeekStartDay
+                $interHouseholdWeekStartDay,
             );
             $updates['is_inter_household_alternating'] = $isInterHouseholdAlternating;
         }
@@ -279,13 +307,6 @@ class UpsertTaskTemplateAction
         return $template->fresh()->load('fixedUser:id,name');
     }
 
-    private function ensureTemplateBelongsToHousehold(TaskTemplate $template, Household $household): void
-    {
-        if ((int) $template->household_id !== (int) $household->id) {
-            abort(404, 'Template de tâche introuvable.');
-        }
-    }
-
     private function ensureUserBelongsToHousehold(int $userId, Household $household): int
     {
         $exists = $household->users()
@@ -294,7 +315,7 @@ class UpsertTaskTemplateAction
 
         if (!$exists) {
             throw ValidationException::withMessages([
-                'user_id' => ['Le membre sélectionné n appartient pas au foyer.'],
+                'user_id' => ['Le membre sélectionné n\'appartient pas au foyer.'],
             ]);
         }
 
@@ -307,14 +328,14 @@ class UpsertTaskTemplateAction
      */
     private function ensureUsersBelongToHousehold(array $userIds, Household $household, string $field): array
     {
-        $normalizedIds = $this->normalizeMemberIdsInput($userIds);
+        $normalizedIds = Normalization::memberIds($userIds);
         foreach ($normalizedIds as $userId) {
             $exists = $household->users()
                 ->where('users.id', $userId)
                 ->exists();
             if (!$exists) {
                 throw ValidationException::withMessages([
-                    $field => ['Le membre sélectionné n appartient pas au foyer.'],
+                    $field => ['Le membre sélectionné n\'appartient pas au foyer.'],
                 ]);
             }
         }
@@ -331,213 +352,7 @@ class UpsertTaskTemplateAction
             ->where('household_id', $household->id)
             ->first();
         $tasksConfig = is_array($settings?->tasks_config) ? $settings->tasks_config : [];
-        $enabled = (bool) ($tasksConfig['alternating_custody_enabled'] ?? false);
-        $changeDay = $this->normalizeIsoWeekDay($tasksConfig['custody_change_day'] ?? 5, 5);
-        $homeWeekStart = $this->resolveCustodyHomeWeekStart(
-            $enabled,
-            $tasksConfig['custody_home_week_start'] ?? null,
-            $changeDay
-        );
 
-        return [
-            'enabled' => $enabled,
-            'change_day' => $changeDay,
-            'home_week_start' => $homeWeekStart,
-        ];
-    }
-
-    private function resolveInterHouseholdWeekStart(
-        bool $isEnabled,
-        mixed $rawWeekStart,
-        int $weekStartDay
-    ): ?string {
-        if (!$isEnabled) {
-            return null;
-        }
-
-        $startDate = is_string($rawWeekStart) && trim($rawWeekStart) !== ''
-            ? Carbon::createFromFormat('Y-m-d', trim($rawWeekStart))->startOfDay()
-            : now()->startOfDay();
-        $normalizedWeekStartDay = $this->normalizeIsoWeekDay($weekStartDay, 1);
-
-        return $this->startOfCustomWeek($startDate, $normalizedWeekStartDay)->toDateString();
-    }
-
-    private function resolveInterHouseholdWeekStartDay(array $alternatingCustody): int
-    {
-        if (!(bool) ($alternatingCustody['enabled'] ?? false)) {
-            return 1;
-        }
-
-        return $this->normalizeIsoWeekDay($alternatingCustody['change_day'] ?? 1, 1);
-    }
-
-    private function normalizeIsoWeekDay(mixed $value, int $default = 1): int
-    {
-        $parsed = (int) $value;
-        if ($parsed < 1 || $parsed > 7) {
-            return $default;
-        }
-
-        return $parsed;
-    }
-
-    private function resolveCustodyHomeWeekStart(bool $isEnabled, mixed $rawDate, int $changeDay): ?string
-    {
-        if (!$isEnabled) {
-            return null;
-        }
-
-        $baseDate = is_string($rawDate) && trim($rawDate) !== ''
-            ? Carbon::createFromFormat('Y-m-d', trim($rawDate))->startOfDay()
-            : now()->startOfDay();
-        $startOfWeek = $this->startOfCustomWeek($baseDate, $changeDay);
-
-        return $startOfWeek->toDateString();
-    }
-
-    private function startOfCustomWeek(Carbon $date, int $startDayIso): Carbon
-    {
-        $normalized = $date->copy()->startOfDay();
-        $delta = ((int) $normalized->dayOfWeekIso - $startDayIso + 7) % 7;
-
-        return $normalized->subDays($delta);
-    }
-
-    private function resolveTemplateStartDate(string $recurrence, mixed $rawStartDate, ?TaskTemplate $template): ?string
-    {
-        if ($recurrence === 'once') {
-            return null;
-        }
-
-        if (is_string($rawStartDate) && trim($rawStartDate) !== '') {
-            return Carbon::createFromFormat('Y-m-d', trim($rawStartDate))->startOfDay()->toDateString();
-        }
-
-        if ($template?->start_date) {
-            return Carbon::parse($template->start_date)->startOfDay()->toDateString();
-        }
-
-        if ($template?->created_at) {
-            return Carbon::parse($template->created_at)->startOfDay()->toDateString();
-        }
-
-        return now()->startOfDay()->toDateString();
-    }
-
-    private function resolveTemplateEndDate(string $recurrence, mixed $rawEndDate, ?string $startDate): ?string
-    {
-        if ($recurrence === 'once') {
-            return null;
-        }
-
-        if (!is_string($rawEndDate) || trim($rawEndDate) === '') {
-            return null;
-        }
-
-        $resolvedEndDate = Carbon::createFromFormat('Y-m-d', trim($rawEndDate))->startOfDay()->toDateString();
-        if (is_string($startDate) && trim($startDate) !== '' && $resolvedEndDate < $startDate) {
-            throw ValidationException::withMessages([
-                'end_date' => ['La date de fin doit être égale ou postérieure à la date de début de la routine.'],
-            ]);
-        }
-
-        return $resolvedEndDate;
-    }
-
-    private function resolveTemplateStartDateValue(?TaskTemplate $template): ?string
-    {
-        if (!$template) {
-            return null;
-        }
-
-        if ($template->start_date) {
-            return Carbon::parse($template->start_date)->startOfDay()->toDateString();
-        }
-
-        if ((string) $template->recurrence !== 'once' && $template->created_at) {
-            return Carbon::parse($template->created_at)->startOfDay()->toDateString();
-        }
-
-        return null;
-    }
-
-    /**
-     * @param  array<int, int>|mixed  $value
-     * @return array<int, int>
-     */
-    private function normalizeMemberIdsInput(mixed $value): array
-    {
-        if (!is_array($value)) {
-            return [];
-        }
-
-        $ids = [];
-        foreach ($value as $candidate) {
-            $id = (int) $candidate;
-            if ($id <= 0) {
-                continue;
-            }
-            if (!in_array($id, $ids, true)) {
-                $ids[] = $id;
-            }
-        }
-
-        return $ids;
-    }
-
-    /**
-     * @param  array<int, int>|mixed  $value
-     * @return array<int, int>
-     */
-    private function normalizeRecurrenceDaysInput(mixed $value): array
-    {
-        if (!is_array($value)) {
-            return [];
-        }
-
-        $days = [];
-        foreach ($value as $dayValue) {
-            $day = (int) $dayValue;
-            if ($day < 1 || $day > 7) {
-                continue;
-            }
-            if (!in_array($day, $days, true)) {
-                $days[] = $day;
-            }
-        }
-
-        sort($days);
-
-        return $days;
-    }
-
-    /**
-     * @return array{0:string,1:array<int,int>}
-     */
-    private function normalizeTemplateRecurrenceAndDays(string $recurrence, mixed $rawRecurrenceDays): array
-    {
-        $normalizedRecurrence = in_array($recurrence, ['daily', 'weekly', 'monthly', 'once'], true)
-            ? $recurrence
-            : 'weekly';
-        $days = $this->normalizeRecurrenceDaysInput($rawRecurrenceDays);
-
-        if (!in_array($normalizedRecurrence, ['daily', 'weekly'], true)) {
-            return [$normalizedRecurrence, []];
-        }
-
-        if ($normalizedRecurrence === 'daily') {
-            if (count($days) === 0 || count($days) === 7) {
-                return ['daily', self::FULL_WEEK_DAYS];
-            }
-
-            return ['weekly', $days];
-        }
-
-        if (count($days) === 7) {
-            return ['daily', self::FULL_WEEK_DAYS];
-        }
-
-        return ['weekly', $days];
+        return $this->taskRecurrenceService->resolveAlternatingCustodySettings($tasksConfig);
     }
 }

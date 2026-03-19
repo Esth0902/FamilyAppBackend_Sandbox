@@ -28,15 +28,12 @@ class CreateTaskInstanceAction
      */
     public function execute(Household $household, string $role, User $currentUser, array $validated): TaskInstance
     {
-        $this->ensureTasksModuleEnabled($household);
-
         $isParent = $role === User::ROLE_PARENT;
         $currentUserId = (int) $currentUser->id;
 
         $template = null;
         if (!empty($validated['task_template_id'])) {
             $template = TaskTemplate::query()->findOrFail((int) $validated['task_template_id']);
-            $this->ensureTemplateBelongsToHousehold($template, $household);
         }
 
         if (!$template) {
@@ -97,7 +94,6 @@ class CreateTaskInstanceAction
                 $assigneeIds = $this->resolveAssigneeIds($template, $members, $dueDate);
             }
         } else {
-            $this->ensureUserBelongsToHousehold($currentUserId, $household);
             $assigneeIds = [$currentUserId];
         }
 

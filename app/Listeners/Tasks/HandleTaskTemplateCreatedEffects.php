@@ -7,8 +7,9 @@ use App\Models\Household;
 use App\Services\NotificationService;
 use App\Services\RealtimePublisher;
 use App\Support\Normalization;
+use Illuminate\Contracts\Queue\ShouldQueue;
 
-class HandleTaskTemplateCreatedEffects
+class HandleTaskTemplateCreatedEffects implements ShouldQueue
 {
     public function __construct(
         private readonly NotificationService $notificationService,

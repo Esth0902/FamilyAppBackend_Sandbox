@@ -4,8 +4,9 @@ namespace App\Listeners\Tasks;
 
 use App\Events\Tasks\TaskTemplateDeletedEvent;
 use App\Services\RealtimePublisher;
+use Illuminate\Contracts\Queue\ShouldQueue;
 
-class HandleTaskTemplateDeletedEffects
+class HandleTaskTemplateDeletedEffects implements ShouldQueue
 {
     public function __construct(private readonly RealtimePublisher $realtimePublisher)
     {

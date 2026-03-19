@@ -3,7 +3,6 @@
 namespace App\Actions\Tasks;
 
 use App\Events\Tasks\TaskInstanceValidatedEvent;
-use App\Http\Controllers\Api\Concerns\InteractsWithTaskContext;
 use App\Models\Household;
 use App\Models\TaskInstance;
 use App\Models\User;
@@ -12,16 +11,10 @@ use Illuminate\Validation\ValidationException;
 
 class ValidateTaskInstanceAction
 {
-    use InteractsWithTaskContext;
-
     private const STATUS_DONE = "r\u{00E9}alis\u{00E9}e";
 
-    public function execute(Household $household, string $role, User $actor, TaskInstance $instance): TaskInstance
+    public function execute(Household $household, User $actor, TaskInstance $instance): TaskInstance
     {
-        $this->ensureTasksModuleEnabled($household);
-        $this->ensureParentRole($role);
-        $this->ensureInstanceBelongsToHousehold($instance, $household);
-
         if ((string) $instance->status !== self::STATUS_DONE) {
             throw ValidationException::withMessages([
                 'status' => ['La tâche doit être réalisée avant validation.'],
@@ -42,7 +35,7 @@ class ValidateTaskInstanceAction
             $instance->assignees
                 ->map(static fn(User $assignee): int => (int) $assignee->id)
                 ->values()
-                ->all()
+                ->all(),
         );
         if (count($assigneeIds) === 0 && (int) $instance->user_id > 0) {
             $assigneeIds = [(int) $instance->user_id];

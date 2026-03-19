@@ -4,6 +4,7 @@ namespace App\Http\Requests\Tasks;
 
 use App\Http\Controllers\Api\Concerns\InteractsWithTaskContext;
 use App\Http\Requests\HouseholdAwareRequest;
+use App\Models\TaskTemplate;
 use App\Models\User;
 use App\Support\Normalization;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -28,6 +29,16 @@ class StoreTaskInstanceRequest extends HouseholdAwareRequest
         $this->ensureTasksModuleEnabled($this->household());
         $this->ensureUserBelongsToHousehold((int) $this->user()->id, $this->household());
 
+        $templateId = (int) $this->input('task_template_id', 0);
+        if ($templateId > 0) {
+            $template = TaskTemplate::query()->find($templateId);
+            if (!$template instanceof TaskTemplate) {
+                return false;
+            }
+
+            $this->ensureTemplateBelongsToHousehold($template, $this->household());
+        }
+
         return true;
     }
 
@@ -37,7 +48,7 @@ class StoreTaskInstanceRequest extends HouseholdAwareRequest
     public function rules(): array
     {
         return [
-            'task_template_id' => ['nullable', 'integer'],
+            'task_template_id' => ['nullable', 'integer', 'exists:task_templates,id'],
             'name' => ['nullable', 'string', 'max:255'],
             'description' => ['nullable', 'string', 'max:1000'],
             'due_date' => ['required', 'date_format:Y-m-d'],

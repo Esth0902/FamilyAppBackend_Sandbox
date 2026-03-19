@@ -19,11 +19,8 @@ class RequestTaskReassignmentAction
         Household $household,
         User $currentUser,
         TaskInstance $instance,
-        int $invitedUserId
+        int $invitedUserId,
     ): UserNotification {
-        $this->ensureTasksModuleEnabled($household);
-        $this->ensureInstanceBelongsToHousehold($instance, $household);
-
         $currentUserId = (int) $currentUser->id;
         $invitedUserId = $this->ensureUserBelongsToHousehold($invitedUserId, $household);
         if ($invitedUserId === $currentUserId) {
@@ -37,10 +34,6 @@ class RequestTaskReassignmentAction
             'assignees:id,name',
         ]);
 
-        if (!$this->isUserAssignedToInstance($instance, $currentUserId)) {
-            abort(403, 'Seul un membre assigné peut demander une reprise.');
-        }
-
         if ($this->isUserAssignedToInstance($instance, $invitedUserId)) {
             throw ValidationException::withMessages([
                 'invited_user_id' => ['Ce membre est déjà assigné à cette tâche.'],
@@ -49,6 +42,7 @@ class RequestTaskReassignmentAction
 
         $taskTitle = (string) ($instance->template?->name ?? 'Tâche');
         $householdName = (string) ($household->name ?? 'ce foyer');
+
         $invitationNotification = DB::transaction(function () use (
             $household,
             $instance,
@@ -56,7 +50,7 @@ class RequestTaskReassignmentAction
             $currentUserId,
             $invitedUserId,
             $taskTitle,
-            $householdName
+            $householdName,
         ): UserNotification {
             $alreadyPending = UserNotification::query()
                 ->where('user_id', $invitedUserId)
@@ -82,7 +76,7 @@ class RequestTaskReassignmentAction
                     (string) ($currentUser->name ?? 'Un membre'),
                     $taskTitle,
                     optional($instance->due_date)->toDateString() ?? '',
-                    $householdName
+                    $householdName,
                 ),
                 'data' => [
                     'household_id' => (int) $household->id,

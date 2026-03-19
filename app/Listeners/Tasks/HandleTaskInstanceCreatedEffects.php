@@ -6,8 +6,9 @@ use App\Events\Tasks\TaskInstanceCreatedEvent;
 use App\Models\Household;
 use App\Services\NotificationService;
 use App\Services\RealtimePublisher;
+use Illuminate\Contracts\Queue\ShouldQueue;
 
-class HandleTaskInstanceCreatedEffects
+class HandleTaskInstanceCreatedEffects implements ShouldQueue
 {
     public function __construct(
         private readonly NotificationService $notificationService,

@@ -4,8 +4,9 @@ namespace App\Listeners\Tasks;
 
 use App\Events\Tasks\TaskTemplateUpdatedEvent;
 use App\Services\RealtimePublisher;
+use Illuminate\Contracts\Queue\ShouldQueue;
 
-class HandleTaskTemplateUpdatedEffects
+class HandleTaskTemplateUpdatedEffects implements ShouldQueue
 {
     public function __construct(private readonly RealtimePublisher $realtimePublisher)
     {

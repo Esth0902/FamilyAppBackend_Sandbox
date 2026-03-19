@@ -8,8 +8,9 @@ use App\Models\User;
 use App\Services\NotificationService;
 use App\Services\RealtimePublisher;
 use App\Support\Normalization;
+use Illuminate\Contracts\Queue\ShouldQueue;
 
-class HandleTaskInstanceUpdatedEffects
+class HandleTaskInstanceUpdatedEffects implements ShouldQueue
 {
     private const STATUS_DONE = "r\u{00E9}alis\u{00E9}e";
     private const STATUS_CANCELLED = "annul\u{00E9}e";

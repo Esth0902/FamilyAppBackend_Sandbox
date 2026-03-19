@@ -27,14 +27,10 @@ class UpdateTaskInstanceAction
      */
     public function execute(
         Household $household,
-        string $role,
         User $actor,
         TaskInstance $instance,
         array $validated
     ): TaskInstance {
-        $this->ensureTasksModuleEnabled($household);
-        $this->ensureInstanceBelongsToHousehold($instance, $household);
-
         $instance->loadMissing([
             'assignees:id,name',
             'template:id,household_id,name',
@@ -52,30 +48,7 @@ class UpdateTaskInstanceAction
             $previousAssigneeIds = [(int) $instance->user_id];
         }
 
-        $isParent = $role === User::ROLE_PARENT;
         $currentUserId = (int) $actor->id;
-
-        if (!$isParent) {
-            if (!$this->isUserAssignedToInstance($instance, $currentUserId)) {
-                abort(403, 'Vous pouvez modifier uniquement vos tâches.');
-            }
-
-            if (
-                array_key_exists('user_id', $validated)
-                || array_key_exists('user_ids', $validated)
-                || array_key_exists('due_date', $validated)
-                || array_key_exists('validated_by_parent', $validated)
-            ) {
-                abort(403, 'Action réservée aux parents.');
-            }
-
-            if (
-                array_key_exists('status', $validated)
-                && !in_array((string) $validated['status'], [self::STATUS_TODO, self::STATUS_DONE], true)
-            ) {
-                abort(403, 'Statut non autorisé.');
-            }
-        }
 
         $updates = [];
         $nextAssigneeIds = null;

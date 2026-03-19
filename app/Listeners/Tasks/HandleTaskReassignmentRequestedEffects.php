@@ -4,8 +4,9 @@ namespace App\Listeners\Tasks;
 
 use App\Events\Tasks\TaskReassignmentRequestedEvent;
 use App\Services\RealtimePublisher;
+use Illuminate\Contracts\Queue\ShouldQueue;
 
-class HandleTaskReassignmentRequestedEffects
+class HandleTaskReassignmentRequestedEffects implements ShouldQueue
 {
     public function __construct(private readonly RealtimePublisher $realtimePublisher)
     {

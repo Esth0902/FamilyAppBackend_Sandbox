@@ -8,14 +8,16 @@ use App\Models\HouseholdSetting;
 use App\Models\TaskInstance;
 use App\Models\TaskTemplate;
 use App\Models\User;
-use App\Support\Normalization;
+use App\Services\Tasks\TaskInstanceGenerationService;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 
 class GetTaskBoardQuery
 {
-    public function __construct(private readonly TaskRecurrenceService $taskRecurrenceService)
-    {
+    public function __construct(
+        private readonly TaskRecurrenceService $taskRecurrenceService,
+        private readonly TaskInstanceGenerationService $taskInstanceGenerationService,
+    ) {
     }
 
     /**
@@ -35,14 +37,14 @@ class GetTaskBoardQuery
             ->get();
 
         if ($tasksEnabled) {
-            $this->taskRecurrenceService->ensureRecurringInstances(
+            $this->taskInstanceGenerationService->ensureRecurringInstances(
                 $templates,
                 $members,
                 $fromDate,
                 $toDate,
                 $alternatingCustody,
                 (int) $household->id,
-                $interHouseholdWeekStartDay
+                $interHouseholdWeekStartDay,
             );
         }
 
@@ -112,17 +114,7 @@ class GetTaskBoardQuery
             ->where('household_id', $household->id)
             ->first();
         $tasksConfig = is_array($settings?->tasks_config) ? $settings->tasks_config : [];
-        $enabled = (bool) ($tasksConfig['alternating_custody_enabled'] ?? false);
-        $changeDay = Normalization::isoWeekDay($tasksConfig['custody_change_day'] ?? 5, 5);
 
-        return [
-            'enabled' => $enabled,
-            'change_day' => $changeDay,
-            'home_week_start' => $this->taskRecurrenceService->resolveCustodyHomeWeekStart(
-                $enabled,
-                $tasksConfig['custody_home_week_start'] ?? null,
-                $changeDay
-            ),
-        ];
+        return $this->taskRecurrenceService->resolveAlternatingCustodySettings($tasksConfig);
     }
 }
