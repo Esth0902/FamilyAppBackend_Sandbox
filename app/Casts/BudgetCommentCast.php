@@ -29,7 +29,7 @@ class BudgetCommentCast implements CastsAttributes
         }
 
         if (is_string($value)) {
-            return $value;
+            return (new BudgetComment($value))->toStoredString();
         }
 
         return (string) $value;

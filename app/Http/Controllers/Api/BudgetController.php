@@ -23,22 +23,16 @@ use App\Http\Requests\Budget\UpdateAdjustmentRequest;
 use App\Http\Requests\Budget\UpdateBudgetSettingRequest;
 use App\Http\Requests\Budget\ValidatePaymentRequest;
 use App\Http\Resources\Budget\BudgetSettingResource;
-use App\Http\Resources\Budget\ChildBudgetResource;
 use App\Http\Resources\Budget\TransactionResource;
-use App\Models\BudgetSetting;
-use App\Models\Household;
-use App\Models\HouseholdSetting;
 use App\Models\PocketMoneyTransaction;
 use App\Models\User;
+use App\Queries\Budget\GetBudgetDashboardQuery;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class BudgetController extends Controller
 {
     use ResolvesHouseholdContext;
-
-    private const TYPE_ADVANCE = 'advance';
-    private const STATUS_PENDING = 'pending';
 
     public function __construct(
         private readonly RequestAdvanceAction $requestAdvanceAction,
@@ -49,76 +43,16 @@ class BudgetController extends Controller
         private readonly UpdateAdjustmentAction $updateAdjustmentAction,
         private readonly DeleteAdjustmentAction $deleteAdjustmentAction,
         private readonly ReviewAdvanceAction $reviewAdvanceAction,
+        private readonly GetBudgetDashboardQuery $getBudgetDashboardQuery,
     ) {
     }
 
     public function board(Request $request): JsonResponse
     {
         [$household, $role] = $this->resolveHouseholdWithRole($request);
-        $this->ensureBudgetModuleEnabled($household);
+        $payload = $this->getBudgetDashboardQuery->execute($household, (string) $role, (int) $request->user()->id, $request);
 
-        $currentUserId = (int) $request->user()->id;
-        $isParent = (string) $role === User::ROLE_PARENT;
-
-        $children = $household->users()
-            ->select('users.id', 'users.name')
-            ->wherePivot('role', User::ROLE_CHILD)
-            ->orderBy('users.name')
-            ->get();
-
-        $targetChildren = $isParent ? $children : $children->where('id', $currentUserId)->values();
-        $childIds = $targetChildren->pluck('id')->map(static fn (mixed $id): int => (int) $id)->values();
-
-        $settingsByUserId = BudgetSetting::query()
-            ->where('household_id', $household->id)
-            ->whereIn('user_id', $childIds)
-            ->get()
-            ->keyBy('user_id');
-
-        $transactionsByUserId = PocketMoneyTransaction::query()
-            ->where('household_id', $household->id)
-            ->whereIn('user_id', $childIds)
-            ->orderByDesc('created_at')
-            ->get()
-            ->groupBy('user_id');
-
-        $childrenPayload = $targetChildren->map(function (User $child) use ($settingsByUserId, $transactionsByUserId, $request): array {
-            /** @var BudgetSetting|null $setting */
-            $setting = $settingsByUserId->get((int) $child->id);
-            $transactions = $transactionsByUserId->get((int) $child->id, collect());
-
-            return (new ChildBudgetResource([
-                'child' => $child,
-                'setting' => $setting,
-                'transactions' => $transactions,
-                'now' => now(),
-            ]))->resolve($request);
-        })->values();
-
-        $pendingRequests = [];
-        if ($isParent) {
-            $pendingRequests = PocketMoneyTransaction::query()
-                ->where('household_id', $household->id)
-                ->where('type', self::TYPE_ADVANCE)
-                ->where('status', self::STATUS_PENDING)
-                ->with('user:id,name')
-                ->orderByDesc('created_at')
-                ->get()
-                ->map(fn (PocketMoneyTransaction $tx): array => (new TransactionResource($tx))->resolve($request))
-                ->values()
-                ->all();
-        }
-
-        $budgetConfig = $this->resolveBudgetConfig($household);
-
-        return $this->budgetJson([
-            'budget_enabled' => true,
-            'currency' => (string) ($budgetConfig['currency'] ?? 'EUR'),
-            'settings' => $budgetConfig,
-            'current_user' => ['id' => $currentUserId, 'role' => (string) $role],
-            'children' => $childrenPayload,
-            'pending_advance_requests' => $pendingRequests,
-        ]);
+        return $this->budgetJson($payload);
     }
 
     public function updateSetting(UpdateBudgetSettingRequest $request, User $user): JsonResponse
@@ -250,25 +184,6 @@ class BudgetController extends Controller
             'message' => $message,
             'transaction' => (new TransactionResource($transaction))->resolve($request),
         ], 201);
-    }
-
-    private function ensureBudgetModuleEnabled(Household $household): void
-    {
-        $settings = HouseholdSetting::query()->where('household_id', $household->id)->first();
-        if (!(bool) ($settings?->has_budget ?? false)) {
-            abort(403, 'Le module budget est désactivé pour ce foyer.');
-        }
-    }
-
-    private function resolveBudgetConfig(Household $household): array
-    {
-        $settings = HouseholdSetting::query()->where('household_id', $household->id)->first();
-        $config = is_array($settings?->budget_config) ? $settings->budget_config : [];
-        if (!isset($config['currency']) || !is_string($config['currency']) || trim($config['currency']) === '') {
-            $config['currency'] = 'EUR';
-        }
-
-        return $config;
     }
 
     private function budgetJson(array $payload, int $status = 200): JsonResponse

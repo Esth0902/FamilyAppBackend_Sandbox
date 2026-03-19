@@ -20,15 +20,14 @@ class TransactionResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
-        $budgetComment = $this->comment instanceof BudgetComment
-            ? $this->comment
-            : BudgetComment::fromStored((string) $this->comment);
+        /** @var BudgetComment|null $budgetComment */
+        $budgetComment = $this->comment;
 
         $requestKind = null;
         $payoutMode = null;
         if ((string) $this->type === self::TYPE_ADVANCE) {
-            $requestKind = $budgetComment->requestKind;
-            $payoutMode = $budgetComment->payoutMode;
+            $requestKind = $budgetComment?->requestKind;
+            $payoutMode = $budgetComment?->payoutMode;
         }
 
         $calculationService = app(BudgetCalculationService::class);
@@ -45,7 +44,7 @@ class TransactionResource extends JsonResource
             ),
             'type' => (string) $this->type,
             'status' => (string) $this->status,
-            'comment' => $budgetComment->displayComment,
+            'comment' => $budgetComment?->displayComment,
             'request_kind' => $requestKind,
             'payout_mode' => $payoutMode,
             'created_at' => optional($this->created_at)->toIso8601String(),
