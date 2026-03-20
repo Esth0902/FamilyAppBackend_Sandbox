@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\HouseholdConnectionController;
 use App\Http\Controllers\Api\HouseholdController;
 use App\Http\Controllers\Api\MealPollController;
 use App\Http\Controllers\Api\NotificationController;
+use App\Http\Controllers\Api\NotificationResolutionController;
 use App\Http\Controllers\Api\RecipeController;
 use App\Http\Controllers\Api\ShoppingListController;
 use App\Http\Controllers\Api\TaskController;
@@ -105,12 +106,14 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'must.change.password'])->gro
     Route::post('/calendar/meal-plan/{mealPlan}/attendance', [CalendarController::class, 'confirmMealPlanAttendance']);
 
     // Notifications
-    Route::get('/notifications/pending', [NotificationController::class, 'pending']);
-    Route::post('/notifications/{notification}/read', [NotificationController::class, 'read']);
-    Route::post('/notifications/{notification}/household-invite-response', [NotificationController::class, 'respondHouseholdInvite']);
-    Route::post('/notifications/{notification}/household-link-response', [NotificationController::class, 'respondHouseholdLinkRequest']);
-    Route::post('/notifications/{notification}/task-reassignment-response', [NotificationController::class, 'respondTaskReassignmentInvite']);
-    Route::post('/notifications/{notification}/household-deletion-response', [NotificationController::class, 'respondHouseholdDeletion']);
+    Route::get('/notifications/pending', [NotificationController::class, 'index']);
+    Route::post('/notifications/{notification}/read', [NotificationController::class, 'markAsRead']);
+    Route::post('/notifications/read-all', [NotificationController::class, 'markAllAsRead']);
+    Route::delete('/notifications/{notification}', [NotificationController::class, 'destroy']);
+    Route::post('/notifications/{notification}/household-invite-response', [NotificationResolutionController::class, 'respondHouseholdInvite']);
+    Route::post('/notifications/{notification}/household-link-response', [NotificationResolutionController::class, 'respondHouseholdLinkRequest']);
+    Route::post('/notifications/{notification}/task-reassignment-response', [NotificationResolutionController::class, 'respondTaskReassignmentInvite']);
+    Route::post('/notifications/{notification}/household-deletion-response', [NotificationResolutionController::class, 'respondHouseholdDeletion']);
 
     // Shopping Lists
     Route::get('/shopping-lists', [ShoppingListController::class, 'index']);

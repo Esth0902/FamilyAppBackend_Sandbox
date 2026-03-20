@@ -14,9 +14,9 @@ class UpdateTaskInstanceAction
 {
     use InteractsWithTaskContext;
 
-    private const STATUS_TODO = "\u{00E0} faire";
-    private const STATUS_DONE = "r\u{00E9}alis\u{00E9}e";
-    private const STATUS_CANCELLED = "annul\u{00E9}e";
+    private const STATUS_TODO = "à faire";
+    private const STATUS_DONE = "réalisée";
+    private const STATUS_CANCELLED = "annulée";
 
     public function __construct(private readonly ToggleTaskStatusAction $toggleTaskStatusAction)
     {
@@ -159,6 +159,6 @@ class UpdateTaskInstanceAction
             $instance->update(['user_id' => $primaryAssigneeId]);
         }
 
-        $instance->unsetRelation('assignees');
+        $instance->unsetRelation('assignées');
     }
 }

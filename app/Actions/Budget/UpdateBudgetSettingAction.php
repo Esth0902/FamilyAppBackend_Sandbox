@@ -25,7 +25,7 @@ class UpdateBudgetSettingAction
         $resetDay = (int) $payload['reset_day'];
         if ($recurrence === 'weekly' && $resetDay > 7) {
             throw ValidationException::withMessages([
-                'reset_day' => ['Le reset_day hebdomadaire doit être compris entre 1 et 7.'],
+                'reset_day' => ['Le jour de réinitialisation hebdomadaire doit être compris entre 1 et 7.'],
             ]);
         }
 

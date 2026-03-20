@@ -20,7 +20,7 @@ class ShoppingListController extends Controller
     public function storeList(StoreShoppingListRequest $request, StoreShoppingListAction $action): JsonResponse
     {
         $list = $action->execute($request->household(), $request->user(), (string) $request->validated('title'));
-        return ShoppingListMutationResource::created($list, 'Liste creee.')->response()->setStatusCode(201);
+        return ShoppingListMutationResource::created($list, 'Liste créée.')->response()->setStatusCode(201);
     }
 
     public function showList(GetShoppingListRequest $request, ShoppingList $list, ShowShoppingListAction $action): JsonResponse
@@ -32,7 +32,7 @@ class ShoppingListController extends Controller
     public function destroyList(DestroyShoppingListRequest $request, ShoppingList $list, DestroyShoppingListAction $action): JsonResponse
     {
         $action->execute($request->household(), $request->user(), $list);
-        return ShoppingListMessageResource::makeMessage('Liste supprimee.')->response();
+        return ShoppingListMessageResource::makeMessage('Liste supprimée.')->response();
     }
 
     public function addItem(AddShoppingListItemRequest $request, ShoppingList $list, AddShoppingListItemAction $action): JsonResponse
@@ -56,12 +56,12 @@ class ShoppingListController extends Controller
     public function clearCheckedItems(ClearCheckedItemsRequest $request, ShoppingList $list, ClearCheckedItemsAction $action): JsonResponse
     {
         $deletedCount = $action->execute($request->household(), $list, $request->user());
-        return ShoppingListMessageResource::makeMessage('Elements coches supprimes.', $deletedCount)->response();
+        return ShoppingListMessageResource::makeMessage('Éléments coches supprimés.', $deletedCount)->response();
     }
 
     public function removeItem(RemoveShoppingListItemRequest $request, ShoppingListItem $item, RemoveShoppingListItemAction $action): JsonResponse
     {
         $action->execute($request->household(), $request->user(), $item);
-        return ShoppingListMessageResource::makeMessage('Element supprime')->response();
+        return ShoppingListMessageResource::makeMessage('Élément supprimé')->response();
     }
 }

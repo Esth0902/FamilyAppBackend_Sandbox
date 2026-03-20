@@ -46,7 +46,7 @@ class MealPollController extends Controller
         CreateMealPollAction $createMealPollAction,
     ): JsonResponse {
         $poll = $createMealPollAction->execute($request->household(), $request->user(), $request->validated());
-        return response()->json(['message' => 'Sondage ouvert avec succes.', 'poll' => MealPollResource::make($poll)->resolve($request)], 201);
+        return response()->json(['message' => 'Sondage ouvert avec succès.', 'poll' => MealPollResource::make($poll)->resolve($request)], 201);
     }
 
     public function update(
@@ -73,7 +73,7 @@ class MealPollController extends Controller
         SyncMealPollVotesAction $syncMealPollVotesAction,
     ): JsonResponse {
         $updatedPoll = $syncMealPollVotesAction->execute($poll, $request->user(), $request->optionIds());
-        return response()->json(['message' => 'Votes enregistres.', 'poll' => MealPollResource::make($updatedPoll)->resolve($request)]);
+        return response()->json(['message' => 'Votes enregistrés.', 'poll' => MealPollResource::make($updatedPoll)->resolve($request)]);
     }
 
     public function close(
@@ -82,7 +82,7 @@ class MealPollController extends Controller
         CloseMealPollAction $closeMealPollAction,
     ): JsonResponse {
         $result = $closeMealPollAction->execute($poll, $request->user());
-        return response()->json(['message' => 'Sondage cloture.', 'poll' => MealPollResource::make($result['poll'])->resolve($request), 'winner_recipe_id' => $result['winner_recipe_id']]);
+        return response()->json(['message' => 'Sondage clôturé.', 'poll' => MealPollResource::make($result['poll'])->resolve($request), 'winner_recipe_id' => $result['winner_recipe_id']]);
     }
 
     public function validateResults(
@@ -91,6 +91,6 @@ class MealPollController extends Controller
         ValidateMealPollResultsAction $validateMealPollResultsAction,
     ): JsonResponse {
         $result = $validateMealPollResultsAction->execute($poll, $request->user(), $request->validated());
-        return response()->json(['message' => 'Sondage valide.', 'selected_recipe_ids' => $result['selected_recipe_ids'], 'vote_stats' => $result['vote_stats'], 'poll' => MealPollResource::make($result['poll'])->resolve($request)]);
+        return response()->json(['message' => 'Sondage validé.', 'selected_recipe_ids' => $result['selected_recipe_ids'], 'vote_stats' => $result['vote_stats'], 'poll' => MealPollResource::make($result['poll'])->resolve($request)]);
     }
 }

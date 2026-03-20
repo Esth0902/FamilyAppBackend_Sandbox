@@ -67,11 +67,11 @@ class StoreMealPlanRequest extends CalendarContextRequest
                     ->where('id', $recipeId)
                     ->exists()
             ) {
-                $validator->errors()->add('recipe_id', 'La recette sélectionnée n appartient pas au foyer.');
+                $validator->errors()->add('recipe_id', 'La recette sélectionnée n\'appartient pas au foyer.');
             }
 
             if (!Schema::hasColumn('meal_plans', 'custom_title') && $recipeId === null) {
-                $validator->errors()->add('custom_title', 'La saisie libre n est pas disponible sur ce schéma.');
+                $validator->errors()->add('custom_title', 'La saisie libre n\'est pas disponible sur ce schéma.');
             }
         });
     }

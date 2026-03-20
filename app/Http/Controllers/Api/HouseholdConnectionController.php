@@ -221,7 +221,7 @@ class HouseholdConnectionController extends Controller
             $targetParentIds = $this->resolveParentUserIds($targetHouseholdId);
             if (count($targetParentIds) === 0) {
                 throw ValidationException::withMessages([
-                    'household' => ['Aucun parent n’est disponible pour valider la liaison.'],
+                    'household' => ['Aucun parent n\'est disponible pour valider la liaison.'],
                 ]);
             }
 

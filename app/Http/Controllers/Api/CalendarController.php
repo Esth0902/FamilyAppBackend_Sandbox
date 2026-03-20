@@ -51,7 +51,7 @@ class CalendarController extends Controller
     public function destroyEvent(DestroyEventRequest $request, Event $event, DestroyEventAction $action): JsonResponse
     {
         $action->execute($request->household(), $request->user(), $event);
-        return EventResource::deleted('Evenement supprime.')->response();
+        return EventResource::deleted('Événement supprimé.')->response();
     }
 
     public function storeMealPlan(StoreMealPlanRequest $request, StoreMealPlanAction $action): JsonResponse
@@ -69,18 +69,18 @@ class CalendarController extends Controller
     public function destroyMealPlan(DestroyMealPlanRequest $request, MealPlan $mealPlan, DestroyMealPlanAction $action): JsonResponse
     {
         $action->execute($request->household(), $request->user(), $mealPlan);
-        return MealPlanResource::deleted('Meal plan supprime.')->response();
+        return MealPlanResource::deleted('Meal plan supprimé.')->response();
     }
 
     public function confirmMealPlanAttendance(ConfirmMealPlanAttendanceRequest $request, MealPlan $mealPlan, ConfirmMealPlanAttendanceAction $action): JsonResponse
     {
         $attendance = $action->execute($request->household(), $request->user(), $mealPlan, $request->validated());
-        return MealPlanAttendanceResource::mutation($attendance, 'Presence au repas enregistree.')->response()->setStatusCode(200);
+        return MealPlanAttendanceResource::mutation($attendance, 'Présence au repas enregistrée.')->response()->setStatusCode(200);
     }
 
     public function confirmEventParticipation(ConfirmEventParticipationRequest $request, Event $event, ConfirmEventParticipationAction $action): JsonResponse
     {
         $participation = $action->execute($request->household(), $request->user(), $event, $request->validated());
-        return EventParticipationResource::mutation($participation, 'Participation a l evenement enregistree.')->response()->setStatusCode(200);
+        return EventParticipationResource::mutation($participation, 'Participation à l\'événement enregistrée.')->response()->setStatusCode(200);
     }
 }

@@ -19,9 +19,9 @@ class CreateTaskInstanceAction
 {
     use InteractsWithTaskContext;
 
-    private const STATUS_TODO = "\u{00E0} faire";
-    private const STATUS_DONE = "r\u{00E9}alis\u{00E9}e";
-    private const STATUS_CANCELLED = "annul\u{00E9}e";
+    private const STATUS_TODO = "à faire";
+    private const STATUS_DONE = "réalisée";
+    private const STATUS_CANCELLED = "annulée";
 
     /**
      * @param  array<string, mixed>  $validated
@@ -40,7 +40,7 @@ class CreateTaskInstanceAction
             $title = trim((string) ($validated['name'] ?? ''));
             if ($title === '') {
                 throw ValidationException::withMessages([
-                    'name' => ['Le nom de la tâche est obligatoire si aucun template n est fourni.'],
+                    'name' => ['Le nom de la tâche est obligatoire si aucun template n\'est fourni.'],
                 ]);
             }
 
@@ -278,6 +278,6 @@ class CreateTaskInstanceAction
             $instance->update(['user_id' => $primaryAssigneeId]);
         }
 
-        $instance->unsetRelation('assignees');
+        $instance->unsetRelation('assignées');
     }
 }

@@ -41,7 +41,7 @@ class CreateDietaryTagAction
 
             return [
                 'status' => 200,
-                'message' => 'Ce tag existe deja.',
+                'message' => 'Ce tag existe déjà.',
                 'created' => false,
                 'tag' => $existingTag,
                 'closest_match' => null,
@@ -61,7 +61,7 @@ class CreateDietaryTagAction
             if (is_array($closestMatch) && (float) ($closestMatch['distance'] ?? 1) <= self::DIETARY_TAG_SIMILARITY_THRESHOLD) {
                 return [
                     'status' => 409,
-                    'message' => 'Un tag tres proche existe deja.',
+                    'message' => 'Un tag très proche existe déjà.',
                     'created' => false,
                     'tag' => null,
                     'closest_match' => $closestMatch,

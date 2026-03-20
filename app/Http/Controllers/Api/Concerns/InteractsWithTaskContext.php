@@ -57,7 +57,7 @@ trait InteractsWithTaskContext
 
         if (!$exists) {
             throw ValidationException::withMessages([
-                'user_id' => ['Le membre sélectionné n appartient pas au foyer.'],
+                'user_id' => ['Le membre sélectionné n\'appartient pas au foyer.'],
             ]);
         }
 
@@ -77,7 +77,7 @@ trait InteractsWithTaskContext
                 ->exists();
             if (!$exists) {
                 throw ValidationException::withMessages([
-                    $field => ['Le membre sélectionné n appartient pas au foyer.'],
+                    $field => ['Le membre sélectionné n\'appartient pas au foyer.'],
                 ]);
             }
         }

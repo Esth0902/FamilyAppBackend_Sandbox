@@ -21,7 +21,7 @@ trait InteractsWithBudgetContext
     protected function ensureParentRole(string $role): void
     {
         if ($role !== User::ROLE_PARENT) {
-            abort(403, 'Action reservee aux parents.');
+            abort(403, 'Action reservée aux parents.');
         }
     }
 
