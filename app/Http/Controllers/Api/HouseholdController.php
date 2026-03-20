@@ -7,7 +7,11 @@ use App\Actions\Household\UpdateMemberAction;
 use App\Http\Controllers\Api\Concerns\ResolvesHouseholdContext;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Household\AddHouseholdMemberRequest;
+use App\Http\Requests\Household\CreateDietaryTagRequest;
+use App\Http\Requests\Household\DeleteHouseholdMemberRequest;
+use App\Http\Requests\Household\RefreshMemberAccessRequest;
 use App\Http\Requests\Household\StoreHouseholdRequest;
+use App\Http\Requests\Household\UpdateHouseholdMemberRequest;
 use App\Http\Requests\Household\UpdateHouseholdConfigRequest;
 use App\Models\BudgetSetting;
 use App\Models\DietaryTag;
@@ -107,30 +111,12 @@ class HouseholdController extends Controller
         );
     }
 
-    public function updateMember(Request $request, User $member)
+    public function updateMember(UpdateHouseholdMemberRequest $request, User $member)
     {
-        [$household, $role] = $this->resolveHouseholdWithRole($request);
-        $this->ensureParentRole($role);
-
-        if ($request->exists('email')) {
-            $request->merge([
-                'email' => $this->normalizeEmailInput($request->input('email')),
-            ]);
-        }
-
-        $validated = $request->validate([
-            'name' => 'sometimes|string|max:255',
-            'email' => 'sometimes|nullable|email|max:255|unique:users,email,' . $member->id,
-            'role' => 'sometimes|in:parent,enfant',
-            'nickname' => 'sometimes|nullable|string|max:255',
-        ], [
-            'email.unique' => "Cet e-mail est déjà utilisé.",
-        ]);
-
         $result = $this->updateMemberAction->execute(
-            household: $household,
+            household: $request->household(),
             member: $member,
-            validated: $validated,
+            validated: $request->validated(),
         );
 
         /** @var User $updatedMember */
@@ -148,29 +134,9 @@ class HouseholdController extends Controller
         return response()->json(JsonUtf8Sanitizer::sanitize($response));
     }
 
-    public function deleteMember(Request $request, User $member)
+    public function deleteMember(DeleteHouseholdMemberRequest $request, User $member)
     {
-        [$household, $role] = $this->resolveHouseholdWithRole($request);
-        $this->ensureParentRole($role);
-        $currentUser = $this->resolveAuthenticatedUser($request);
-
-        $memberInHousehold = $household->users()
-            ->where('users.id', $member->id)
-            ->first();
-        if (!$memberInHousehold) {
-            abort(404, 'Membre introuvable pour ce foyer.');
-        }
-
-        if ((int) $currentUser->id === (int) $member->id) {
-            throw ValidationException::withMessages([
-                'member' => ['Vous ne pouvez pas vous supprimer vous-même du foyer.'],
-            ]);
-        }
-
-        $memberRole = (string) ($memberInHousehold->pivot->role ?? User::ROLE_CHILD);
-        if ($memberRole === User::ROLE_PARENT) {
-            $this->ensureParentCanBeRemoved($household, (int) $member->id);
-        }
+        $household = $request->household();
 
         DB::transaction(function () use ($household, $member): void {
             $household->users()->detach($member->id);
@@ -187,24 +153,9 @@ class HouseholdController extends Controller
         ]);
     }
 
-    public function refreshMemberTemporaryAccess(Request $request, User $member)
+    public function refreshMemberTemporaryAccess(RefreshMemberAccessRequest $request, User $member)
     {
-        [$household, $role] = $this->resolveHouseholdWithRole($request);
-        $this->ensureParentRole($role);
-
-        $memberInHousehold = $household->users()
-            ->where('users.id', $member->id)
-            ->first();
-        if (!$memberInHousehold) {
-            abort(404, 'Membre introuvable pour ce foyer.');
-        }
-
-        if (!(bool) $member->must_change_password) {
-            throw ValidationException::withMessages([
-                'member' => ['Ce membre a déjà changé son mot de passe.'],
-            ]);
-        }
-
+        $household = $request->household();
         $rawPassword = Str::random(10);
         $member->forceFill([
             'password' => $rawPassword,
@@ -562,24 +513,14 @@ class HouseholdController extends Controller
         return response()->json($tags);
     }
 
-    public function createDietaryTag(Request $request)
+    public function createDietaryTag(CreateDietaryTagRequest $request)
     {
-        [$household, $role] = $this->resolveHouseholdWithRole($request);
-        $this->ensureParentRole($role);
-        $validated = $request->validate([
-            'label' => 'required|string|min:2|max:120',
-            'type' => 'required|string|in:' . implode(',', self::DIETARY_TAG_TYPES),
-        ]);
+        $household = $request->household();
+        $validated = $request->validated();
 
         $label = trim((string)$validated['label']);
         $type = (string)$validated['type'];
         $key = Str::slug($label);
-
-        if ($key === '') {
-            throw ValidationException::withMessages([
-                'label' => ['Le tag est invalide.'],
-            ]);
-        }
 
         $existingTag = DietaryTag::query()
             ->where('type', $type)
@@ -749,23 +690,6 @@ class HouseholdController extends Controller
             . "N'oublie pas de modifier ton mot de passe dès la première connexion.";
     }
 
-    private function ensureParentCanBeRemoved(Household $household, int $memberId): void
-    {
-        if (!$this->hasOtherParent($household, $memberId)) {
-            throw ValidationException::withMessages([
-                'role' => ["Le foyer doit conserver au moins un parent. Désignez un nouveau parent ou supprimez le foyer."],
-            ]);
-        }
-    }
-
-    private function hasOtherParent(Household $household, int $memberId): bool
-    {
-        return $household->users()
-            ->wherePivot('role', User::ROLE_PARENT)
-            ->where('users.id', '!=', $memberId)
-            ->exists();
-    }
-
     /**
      * @return array<int, array{id:int, name:string, role:string}>
      */
@@ -836,13 +760,5 @@ class HouseholdController extends Controller
         return $email;
     }
 
-    private function normalizeEmailInput(mixed $value): ?string
-    {
-        if (!is_string($value)) {
-            return null;
-        }
-
-        $normalized = mb_strtolower(trim($value));
-        return $normalized !== '' ? $normalized : null;
-    }
 }
+
