@@ -1,0 +1,34 @@
+<?php
+
+namespace App\Http\Requests\ShoppingList;
+
+use App\Models\ShoppingListItem;
+use App\Models\User;
+
+class ToggleShoppingListItemRequest extends ShoppingListContextRequest
+{
+    public function authorize(): bool
+    {
+        $user = $this->user();
+        if (!$user instanceof User) {
+            return false;
+        }
+
+        $household = $this->household();
+        $this->ensureShoppingModuleEnabled($household);
+        $this->ensureItemBelongsToHousehold($this->route('item') instanceof ShoppingListItem ? $this->route('item') : null, $household);
+        $this->ensureCanModifyItemsRole();
+
+        return true;
+    }
+
+    /**
+     * @return array<string, array<int, string>>
+     */
+    public function rules(): array
+    {
+        return [
+            'is_checked' => ['required', 'boolean'],
+        ];
+    }
+}

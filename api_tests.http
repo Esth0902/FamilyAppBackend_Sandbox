@@ -704,6 +704,25 @@ Authorization: Bearer {{auth_token}}
 # - is_checked = true
 # - checked_by (id, name) = utilisateur qui vient de cocher
 
+### Shopping Lists - Cocher/Decocher un element (endpoint dedie)
+PATCH {{baseUrl}}/api/shopping-lists/items/1/toggle
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "is_checked": false
+}
+
+### Shopping Lists - Vider les elements coches d'une liste (parent)
+DELETE {{baseUrl}}/api/shopping-lists/{{shopping_list_id}}/items/checked
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+# Reponse attendue:
+# - message
+# - deleted_count
+
 ### Shopping Lists - Supprimer un element (parent)
 DELETE {{baseUrl}}/api/shopping-lists/items/1
 Accept: {{contentType}}

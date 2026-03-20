@@ -119,6 +119,8 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'must.change.password'])->gro
     Route::delete('/shopping-lists/{list}', [ShoppingListController::class, 'destroyList']);
     Route::post('/shopping-lists/{list}/items', [ShoppingListController::class, 'addItem']);
     Route::patch('/shopping-lists/items/{item}', [ShoppingListController::class, 'updateItem']);
+    Route::patch('/shopping-lists/items/{item}/toggle', [ShoppingListController::class, 'toggleItem']);
+    Route::delete('/shopping-lists/{list}/items/checked', [ShoppingListController::class, 'clearCheckedItems']);
     Route::delete('/shopping-lists/items/{item}', [ShoppingListController::class, 'removeItem']);
 
     // Budget
