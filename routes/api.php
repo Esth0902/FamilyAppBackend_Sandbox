@@ -56,7 +56,7 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'must.change.password'])->gro
     Route::post('/households/leave', [HouseholdController::class, 'leave']);
     Route::get('/households/connected-household', [HouseholdConnectionController::class, 'show']);
     Route::post('/households/connected-household/link-code', [HouseholdConnectionController::class, 'generateCode']);
-    Route::post('/households/connected-household/connect', [HouseholdConnectionController::class, 'connectWithCode']);
+    Route::post('/households/connected-household/connect', [HouseholdConnectionController::class, 'submitRequest']);
     Route::post('/households/connected-household/unlink', [HouseholdConnectionController::class, 'unlink']);
     Route::get('/dashboard', [HouseholdController::class, 'dashboard']);
 

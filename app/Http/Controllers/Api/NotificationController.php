@@ -27,13 +27,13 @@ class NotificationController extends Controller
     public function markAllAsRead(IndexNotificationsRequest $request, MarkAllNotificationsAsReadAction $action): JsonResponse
     {
         $updatedCount = $action->execute($request->user(), filter_var($request->query('all_households', false), FILTER_VALIDATE_BOOLEAN), (int) $request->header('X-Household-Id', 0));
-        return response()->json(['message' => 'Notifications marquees comme lues.', 'updated_count' => $updatedCount]);
+        return response()->json(['message' => 'Notifications marquées comme lues.', 'updated_count' => $updatedCount]);
     }
 
     public function destroy(MarkNotificationRequest $request, UserNotification $notification, DestroyNotificationAction $action): JsonResponse
     {
         $action->execute($notification);
-        return response()->json(['message' => 'Notification supprimee.']);
+        return response()->json(['message' => 'Notification supprimée.']);
     }
 }
 

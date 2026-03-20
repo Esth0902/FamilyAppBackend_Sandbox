@@ -18,6 +18,9 @@ use App\Events\Calendar\MealPlanAttendanceConfirmedEvent;
 use App\Events\Calendar\MealPlanDeletedEvent;
 use App\Events\Calendar\MealPlanStoredEvent;
 use App\Events\Calendar\MealPlanUpdatedEvent;
+use App\Events\HouseholdConnection\HouseholdsUnlinkedEvent;
+use App\Events\HouseholdConnection\HouseholdLinkRequestedEvent;
+use App\Events\HouseholdConnection\HouseholdLinkRespondedEvent;
 use App\Events\Tasks\TaskInstanceCreatedEvent;
 use App\Events\Tasks\TaskInstanceUpdatedEvent;
 use App\Events\Tasks\TaskInstanceValidatedEvent;
@@ -40,6 +43,9 @@ use App\Listeners\Calendar\HandleMealPlanAttendanceConfirmedEffects;
 use App\Listeners\Calendar\HandleMealPlanDeletedEffects;
 use App\Listeners\Calendar\HandleMealPlanStoredEffects;
 use App\Listeners\Calendar\HandleMealPlanUpdatedEffects;
+use App\Listeners\HouseholdConnection\HandleHouseholdsUnlinkedEffects;
+use App\Listeners\HouseholdConnection\HandleHouseholdLinkRequestedEffects;
+use App\Listeners\HouseholdConnection\HandleHouseholdLinkRespondedEffects;
 use App\Listeners\Notifications\CreateAdvanceNotificationListener;
 use App\Listeners\Realtime\BroadcastAdvanceRealtimeListener;
 use App\Listeners\Tasks\HandleTaskInstanceCreatedEffects;
@@ -126,6 +132,15 @@ class EventServiceProvider extends ServiceProvider
         ],
         EventParticipationConfirmedEvent::class => [
             HandleEventParticipationConfirmedEffects::class,
+        ],
+        HouseholdLinkRequestedEvent::class => [
+            HandleHouseholdLinkRequestedEffects::class,
+        ],
+        HouseholdLinkRespondedEvent::class => [
+            HandleHouseholdLinkRespondedEffects::class,
+        ],
+        HouseholdsUnlinkedEvent::class => [
+            HandleHouseholdsUnlinkedEffects::class,
         ],
     ];
 

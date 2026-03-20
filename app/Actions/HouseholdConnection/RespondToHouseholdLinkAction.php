@@ -1,27 +1,19 @@
 <?php
 
-namespace App\Actions\Notification;
+namespace App\Actions\HouseholdConnection;
 
+use App\Events\HouseholdConnection\HouseholdLinkRespondedEvent;
 use App\Models\Household;
 use App\Models\HouseholdLinkRequest;
 use App\Models\User;
 use App\Models\UserNotification;
-use App\Services\NotificationDispatchService;
-use App\Services\RealtimePublisher;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
-class RespondHouseholdLinkRequestAction
+class RespondToHouseholdLinkAction
 {
     private const HOUSEHOLD_LINK_REQUEST_TYPE = 'household_link_request';
-    private const HOUSEHOLD_LINK_RESPONSE_TYPE = 'household_link_request_responded';
-
-    public function __construct(
-        private readonly RealtimePublisher $realtimePublisher,
-        private readonly NotificationDispatchService $notificationDispatchService,
-    ) {
-    }
 
     /**
      * @return array<string, mixed>
@@ -30,25 +22,23 @@ class RespondHouseholdLinkRequestAction
     {
         if ((string) $notification->type !== self::HOUSEHOLD_LINK_REQUEST_TYPE) {
             throw ValidationException::withMessages([
-                'notification' => ["Cette notification n'est pas une demande de liaison de foyer."],
+                'notification' => ['Cette notification n\'est pas une demande de liaison de foyer.'],
             ]);
         }
 
         $now = now();
-        $notificationsToPublish = collect();
-        $householdRealtimePayload = null;
+        $eventPayload = null;
 
         $responsePayload = DB::transaction(function () use (
             $notification,
             $user,
             $action,
             $now,
-            &$notificationsToPublish,
-            &$householdRealtimePayload
+            &$eventPayload
         ): array {
             /** @var UserNotification $lockedNotification */
             $lockedNotification = UserNotification::query()
-                ->whereKey($notification->id)
+                ->whereKey((int) $notification->id)
                 ->lockForUpdate()
                 ->firstOrFail();
 
@@ -70,7 +60,6 @@ class RespondHouseholdLinkRequestAction
             /** @var HouseholdLinkRequest $linkRequest */
             $linkRequest = HouseholdLinkRequest::query()
                 ->whereKey($linkRequestId)
-                ->with(['fromHousehold:id,name,linked_household_id', 'toHousehold:id,name,linked_household_id'])
                 ->lockForUpdate()
                 ->firstOrFail();
 
@@ -144,39 +133,14 @@ class RespondHouseholdLinkRequestAction
                 ])->save();
             }
 
-            $requesterParentIds = $this->notificationDispatchService->resolveParentUserIds((int) $fromHousehold->id);
-            foreach ($requesterParentIds as $requesterParentId) {
-                $notificationToRequester = $this->notificationDispatchService->createUserNotification(
-                    userId: $requesterParentId,
-                    householdId: (int) $fromHousehold->id,
-                    type: self::HOUSEHOLD_LINK_RESPONSE_TYPE,
-                    title: $isAccepted ? 'Liaison de foyer acceptee' : 'Liaison de foyer refusee',
-                    body: $isAccepted
-                        ? sprintf(
-                            'Le foyer %s a accepte votre demande de liaison.',
-                            (string) $toHousehold->name
-                        )
-                        : sprintf(
-                            'Le foyer %s a refuse votre demande de liaison.',
-                            (string) $toHousehold->name
-                        ),
-                    data: [
-                        'status' => $newStatus,
-                        'link_request_id' => (int) $linkRequest->id,
-                        'requester_household_id' => (int) $fromHousehold->id,
-                        'requester_household_name' => (string) $fromHousehold->name,
-                        'target_household_id' => (int) $toHousehold->id,
-                        'target_household_name' => (string) $toHousehold->name,
-                        'responded_by_user_id' => (int) $user->id,
-                        'responded_by_user_name' => (string) ($user->name ?? 'Un parent'),
-                    ],
-                );
-                $notificationsToPublish->push($notificationToRequester);
-            }
-
-            $householdRealtimePayload = [
+            $eventPayload = [
+                'link_request_id' => (int) $linkRequest->id,
                 'from_household_id' => (int) $fromHousehold->id,
+                'from_household_name' => (string) $fromHousehold->name,
                 'to_household_id' => (int) $toHousehold->id,
+                'to_household_name' => (string) $toHousehold->name,
+                'responded_by_user_id' => (int) $user->id,
+                'responded_by_user_name' => (string) ($user->name ?? 'Un parent'),
                 'status' => $newStatus,
             ];
 
@@ -197,37 +161,19 @@ class RespondHouseholdLinkRequestAction
             ];
         });
 
-        DB::afterCommit(function () use ($notificationsToPublish, $householdRealtimePayload): void {
-            foreach ($notificationsToPublish as $notificationToPublish) {
-                if ($notificationToPublish instanceof UserNotification) {
-                    $this->notificationDispatchService->publishNotificationCreated($notificationToPublish);
-                }
-            }
-
-            if (is_array($householdRealtimePayload)) {
-                $fromHouseholdId = (int) ($householdRealtimePayload['from_household_id'] ?? 0);
-                $toHouseholdId = (int) ($householdRealtimePayload['to_household_id'] ?? 0);
-
-                if ($fromHouseholdId > 0) {
-                    $this->realtimePublisher->publishHousehold(
-                        householdId: $fromHouseholdId,
-                        module: 'household',
-                        type: 'connection_updated',
-                        payload: $householdRealtimePayload,
-                    );
-                }
-                if ($toHouseholdId > 0) {
-                    $this->realtimePublisher->publishHousehold(
-                        householdId: $toHouseholdId,
-                        module: 'household',
-                        type: 'connection_updated',
-                        payload: $householdRealtimePayload,
-                    );
-                }
-            }
-        });
+        if (is_array($eventPayload)) {
+            event(new HouseholdLinkRespondedEvent(
+                linkRequestId: (int) $eventPayload['link_request_id'],
+                fromHouseholdId: (int) $eventPayload['from_household_id'],
+                fromHouseholdName: (string) $eventPayload['from_household_name'],
+                toHouseholdId: (int) $eventPayload['to_household_id'],
+                toHouseholdName: (string) $eventPayload['to_household_name'],
+                respondedByUserId: (int) $eventPayload['responded_by_user_id'],
+                respondedByUserName: (string) $eventPayload['responded_by_user_name'],
+                status: (string) $eventPayload['status'],
+            ));
+        }
 
         return $responsePayload;
     }
 }
-

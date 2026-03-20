@@ -2,8 +2,10 @@
 
 namespace App\Http\Controllers\Api;
 
-use App\Actions\Notification\{RespondHouseholdDeletionAction, RespondHouseholdInviteAction, RespondHouseholdLinkRequestAction, RespondTaskReassignmentInviteAction};
+use App\Actions\HouseholdConnection\RespondToHouseholdLinkAction;
+use App\Actions\Notification\{RespondHouseholdDeletionAction, RespondHouseholdInviteAction, RespondTaskReassignmentInviteAction};
 use App\Http\Controllers\Controller;
+use App\Http\Requests\HouseholdConnection\RespondToLinkRequest;
 use App\Http\Requests\Notification\MarkNotificationRequest;
 use App\Models\UserNotification;
 use Illuminate\Http\JsonResponse;
@@ -16,10 +18,9 @@ class NotificationResolutionController extends Controller
         return response()->json($action->execute($notification, $request->user(), (string) $validated['action']));
     }
 
-    public function respondHouseholdLinkRequest(MarkNotificationRequest $request, UserNotification $notification, RespondHouseholdLinkRequestAction $action): JsonResponse
+    public function respondHouseholdLinkRequest(RespondToLinkRequest $request, UserNotification $notification, RespondToHouseholdLinkAction $action): JsonResponse
     {
-        $validated = $request->validate(['action' => ['required', 'in:accept,refuse']]);
-        return response()->json($action->execute($notification, $request->user(), (string) $validated['action']));
+        return response()->json($action->execute($notification, $request->actorOrFail(), $request->actionValue()));
     }
 
     public function respondTaskReassignmentInvite(MarkNotificationRequest $request, UserNotification $notification, RespondTaskReassignmentInviteAction $action): JsonResponse
@@ -34,4 +35,3 @@ class NotificationResolutionController extends Controller
         return response()->json($action->execute($notification, $request->user(), (string) $validated['action']));
     }
 }
-
