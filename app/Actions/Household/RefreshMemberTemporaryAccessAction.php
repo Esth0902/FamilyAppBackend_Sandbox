@@ -2,6 +2,7 @@
 
 namespace App\Actions\Household;
 
+use App\Http\Resources\Household\HouseholdMemberResource;
 use App\Models\Household;
 use App\Models\User;
 use Illuminate\Support\Facades\Log;
@@ -14,8 +15,7 @@ class RefreshMemberTemporaryAccessAction
      * @return array{
      *     member: User,
      *     generated_email: string,
-     *     generated_password: string,
-     *     share_text: string
+     *     generated_password: string
      * }
      */
     public function execute(Household $household, User $member): array
@@ -32,7 +32,7 @@ class RefreshMemberTemporaryAccessAction
             ->where('users.id', $member->id)
             ->firstOrFail();
 
-        $shareText = $this->buildMemberShareText(
+        $shareText = HouseholdMemberResource::buildTemporaryAccessShareText(
             (string) $freshMember->name,
             (string) $freshMember->email,
             $rawPassword
@@ -48,7 +48,6 @@ class RefreshMemberTemporaryAccessAction
             'member' => $freshMember,
             'generated_email' => (string) $freshMember->email,
             'generated_password' => $rawPassword,
-            'share_text' => $shareText,
         ];
     }
 
@@ -71,15 +70,5 @@ class RefreshMemberTemporaryAccessAction
         } catch (\Throwable $exception) {
             Log::warning('Temporary access email failed: ' . $exception->getMessage());
         }
-    }
-
-    private function buildMemberShareText(string $name, string $email, string $rawPassword): string
-    {
-        return "Bonjour {$name} !\n\n"
-            . "Ton compte FamilyFlow est prêt.\n"
-            . "Connecte-toi avec les identifiants suivants :\n"
-            . "E-mail : {$email}\n"
-            . "Mot de passe temporaire : {$rawPassword}\n\n"
-            . "N'oublie pas de modifier ton mot de passe dès la première connexion.";
     }
 }

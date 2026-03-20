@@ -3,7 +3,9 @@
 namespace App\Http\Requests\Household;
 
 use App\Http\Requests\Household\Concerns\HasHouseholdConfigurationRules;
+use App\Models\User;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\ValidationException;
 
 class StoreHouseholdRequest extends FormRequest
 {
@@ -12,6 +14,24 @@ class StoreHouseholdRequest extends FormRequest
     public function authorize(): bool
     {
         return true;
+    }
+
+    public function actor(): ?User
+    {
+        $user = $this->user();
+        return $user instanceof User ? $user : null;
+    }
+
+    public function actorOrFail(): User
+    {
+        $actor = $this->actor();
+        if ($actor instanceof User) {
+            return $actor;
+        }
+
+        throw ValidationException::withMessages([
+            'user' => ['Utilisateur authentifié introuvable.'],
+        ]);
     }
 
     protected function prepareForValidation(): void

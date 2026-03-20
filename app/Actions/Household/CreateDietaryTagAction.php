@@ -17,7 +17,13 @@ class CreateDietaryTagAction
 
     /**
      * @param array<string, mixed> $validated
-     * @return array{status:int,payload:array<string,mixed>}
+     * @return array{
+     *     status:int,
+     *     message:string,
+     *     created:bool,
+     *     tag:DietaryTag|null,
+     *     closest_match:array<string,mixed>|null
+     * }
      */
     public function execute(Household $household, array $validated): array
     {
@@ -35,11 +41,10 @@ class CreateDietaryTagAction
 
             return [
                 'status' => 200,
-                'payload' => [
-                    'message' => 'Ce tag existe deja.',
-                    'created' => false,
-                    'tag' => $this->formatTagPayload($existingTag),
-                ],
+                'message' => 'Ce tag existe deja.',
+                'created' => false,
+                'tag' => $existingTag,
+                'closest_match' => null,
             ];
         }
 
@@ -56,18 +61,10 @@ class CreateDietaryTagAction
             if (is_array($closestMatch) && (float) ($closestMatch['distance'] ?? 1) <= self::DIETARY_TAG_SIMILARITY_THRESHOLD) {
                 return [
                     'status' => 409,
-                    'payload' => [
-                        'message' => 'Un tag tres proche existe deja.',
-                        'created' => false,
-                        'closest_tag' => [
-                            'id' => (int) ($closestMatch['id'] ?? 0),
-                            'key' => (string) ($closestMatch['key'] ?? ''),
-                            'label' => (string) ($closestMatch['label'] ?? ''),
-                            'type' => (string) ($closestMatch['type'] ?? ''),
-                            'is_system' => (bool) ($closestMatch['is_system'] ?? false),
-                            'distance' => round((float) ($closestMatch['distance'] ?? 0), 4),
-                        ],
-                    ],
+                    'message' => 'Un tag tres proche existe deja.',
+                    'created' => false,
+                    'tag' => null,
+                    'closest_match' => $closestMatch,
                 ];
             }
         }
@@ -85,26 +82,10 @@ class CreateDietaryTagAction
 
         return [
             'status' => 201,
-            'payload' => [
-                'message' => 'Tag ajoute.',
-                'created' => true,
-                'tag' => $this->formatTagPayload($newTag),
-            ],
-        ];
-    }
-
-    /**
-     * @return array{id:int,type:string,key:string,label:string,is_system:bool}
-     */
-    private function formatTagPayload(DietaryTag $tag): array
-    {
-        return [
-            'id' => (int) $tag->id,
-            'type' => (string) $tag->type,
-            'key' => (string) $tag->key,
-            'label' => (string) $tag->label,
-            'is_system' => (bool) $tag->is_system,
+            'message' => 'Tag ajoute.',
+            'created' => true,
+            'tag' => $newTag,
+            'closest_match' => null,
         ];
     }
 }
-

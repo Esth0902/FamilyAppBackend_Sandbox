@@ -2,16 +2,13 @@
 
 namespace App\Http\Requests\Household;
 
-use App\Http\Requests\Household\Concerns\HasHouseholdConfigurationRules;
 use App\Models\Household;
 use App\Models\User;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\ValidationException;
 
-class UpdateHouseholdConfigRequest extends FormRequest
+class ParentHouseholdRequest extends FormRequest
 {
-    use HasHouseholdConfigurationRules;
-
     private ?Household $resolvedHousehold = null;
 
     public function authorize(): bool
@@ -26,11 +23,11 @@ class UpdateHouseholdConfigRequest extends FormRequest
     }
 
     /**
-     * @return array<string, array<int, string>|string>
+     * @return array<string, string>
      */
     public function rules(): array
     {
-        return $this->householdConfigurationRules(true);
+        return [];
     }
 
     public function actor(): ?User

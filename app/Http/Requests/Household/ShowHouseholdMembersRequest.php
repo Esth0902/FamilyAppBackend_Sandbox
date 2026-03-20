@@ -2,17 +2,15 @@
 
 namespace App\Http\Requests\Household;
 
-use App\Http\Requests\Household\Concerns\HasHouseholdConfigurationRules;
 use App\Models\Household;
 use App\Models\User;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\ValidationException;
 
-class UpdateHouseholdConfigRequest extends FormRequest
+class ShowHouseholdMembersRequest extends FormRequest
 {
-    use HasHouseholdConfigurationRules;
-
     private ?Household $resolvedHousehold = null;
+    private string $resolvedRole = User::ROLE_CHILD;
 
     public function authorize(): bool
     {
@@ -21,34 +19,22 @@ class UpdateHouseholdConfigRequest extends FormRequest
             return false;
         }
 
-        $household = $this->resolveHouseholdFor($user);
-        return (string) ($household->pivot->role ?? User::ROLE_CHILD) === User::ROLE_PARENT;
+        $this->resolveHouseholdFor($user);
+        return true;
     }
 
     /**
-     * @return array<string, array<int, string>|string>
+     * @return array<string, string>
      */
     public function rules(): array
     {
-        return $this->householdConfigurationRules(true);
+        return [];
     }
 
     public function actor(): ?User
     {
         $user = $this->user();
         return $user instanceof User ? $user : null;
-    }
-
-    public function actorOrFail(): User
-    {
-        $actor = $this->actor();
-        if ($actor instanceof User) {
-            return $actor;
-        }
-
-        throw ValidationException::withMessages([
-            'user' => ['Utilisateur authentifié introuvable.'],
-        ]);
     }
 
     public function household(): Household
@@ -67,6 +53,16 @@ class UpdateHouseholdConfigRequest extends FormRequest
         return $this->resolveHouseholdFor($user);
     }
 
+    public function householdRole(): string
+    {
+        if ($this->resolvedHousehold instanceof Household) {
+            return $this->resolvedRole;
+        }
+
+        $this->household();
+        return $this->resolvedRole;
+    }
+
     private function resolveHouseholdFor(User $user): Household
     {
         $requestedHouseholdId = $this->resolveRequestedHouseholdId();
@@ -81,6 +77,8 @@ class UpdateHouseholdConfigRequest extends FormRequest
         }
 
         $this->resolvedHousehold = $household;
+        $this->resolvedRole = (string) ($household->pivot->role ?? User::ROLE_CHILD);
+
         return $household;
     }
 
@@ -95,3 +93,4 @@ class UpdateHouseholdConfigRequest extends FormRequest
         return $parsed > 0 ? $parsed : null;
     }
 }
+
