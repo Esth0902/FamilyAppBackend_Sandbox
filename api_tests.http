@@ -20,8 +20,9 @@ Accept: application/json
 
 > {%
     if (response.status === 200 || response.status === 201) {
-        client.global.set("auth_token", response.body.token);
-        client.log("Token d'inscription capturé : " + response.body.token);
+        client.global.set("auth_token", response.body.access_token);
+        client.log("Token d'inscription capturé : " + response.body.access_token);
+        client.log("Type de token : " + response.body.token_type);
     } else {
         client.log("Register status: " + response.status);
     }
@@ -38,8 +39,9 @@ Accept: {{contentType}}
 }
 
 > {%
-    client.global.set("auth_token", response.body.token);
-    client.log("Token capturé : " + response.body.token);
+    client.global.set("auth_token", response.body.access_token);
+    client.log("Token capturé : " + response.body.access_token);
+    client.log("Type de token : " + response.body.token_type);
 %}
 
 ### Test de login insensible a la casse sur email
