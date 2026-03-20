@@ -55,6 +55,11 @@ class RecipePolicy
         return $this->getHouseholdRole($user, $recipe->household_id) === 'parent';
     }
 
+    public function toggleBookmark(User $user, Recipe $recipe): bool
+    {
+        return (bool) $recipe->is_global && $this->view($user, $recipe);
+    }
+
     public function restore(User $user, Recipe $recipe): bool
     {
         return $this->delete($user, $recipe);
