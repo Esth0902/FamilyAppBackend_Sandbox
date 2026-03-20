@@ -32,6 +32,18 @@ class LoginRequest extends FormRequest
         ];
     }
 
+    protected function prepareForValidation(): void
+    {
+        $this->merge([
+            'email' => $this->normalizeEmailInput($this->input('email')),
+        ]);
+    }
+
+    public function normalizedEmail(): string
+    {
+        return (string) $this->validated('email', '');
+    }
+
     /**
      * Attempt to authenticate the request's credentials.
      *
@@ -81,5 +93,15 @@ class LoginRequest extends FormRequest
     public function throttleKey(): string
     {
         return Str::transliterate(Str::lower($this->input('email')).'|'.$this->ip());
+    }
+
+    private function normalizeEmailInput(mixed $value): ?string
+    {
+        if (! is_string($value)) {
+            return null;
+        }
+
+        $normalized = mb_strtolower(trim($value));
+        return $normalized !== '' ? $normalized : null;
     }
 }

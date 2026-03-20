@@ -57,7 +57,7 @@ class PollNotificationService
             $userIds,
             'poll_opened',
             'Nouveau sondage repas',
-            'Un nouveau sondage a été ouvert, viens voter !',
+            'Un nouveau sondage a Ã©tÃ© ouvert, viens voter !',
             [
                 'poll_id' => $poll->id,
             ]
@@ -86,8 +86,8 @@ class PollNotificationService
             (int)$poll->household_id,
             $userIds,
             'poll_closing_soon',
-            'Sondage bientôt clôturé',
-            'Le sondage repas se termine bientôt, viens vite voter !',
+            'Sondage bientÃ´t clÃ´turÃ©',
+            'Le sondage repas se termine bientÃ´t, viens vite voter !',
             [
                 'poll_id' => $poll->id,
                 'ends_at' => optional($poll->ends_at)->toIso8601String(),
@@ -110,8 +110,8 @@ class PollNotificationService
             (int)$poll->household_id,
             collect([(int)$parentId]),
             'poll_needs_validation',
-            'Clôture du sondage',
-            'Le sondage est terminé, les plats gagnants doivent être validés.',
+            'ClÃ´ture du sondage',
+            'Le sondage est terminÃ©, les plats gagnants doivent Ãªtre validÃ©s.',
             [
                 'poll_id' => $poll->id,
             ]
@@ -126,9 +126,39 @@ class PollNotificationService
             $userIds,
             'poll_validated',
             'Resultats du sondage',
-            'Les plats gagnants ont été validés.',
+            'Les plats gagnants ont Ã©tÃ© validÃ©s.',
             [
                 'poll_id' => $poll->id,
+            ]
+        );
+    }
+
+    public function notifyPollWinner(MealPoll $poll, ?int $winnerRecipeId): void
+    {
+        if (!$winnerRecipeId) {
+            return;
+        }
+
+        $poll->loadMissing(['household.users', 'options.recipe']);
+        $winnerTitle = (string) (
+            $poll->options
+                ->firstWhere('recipe_id', $winnerRecipeId)
+                ?->recipe
+                ?->title
+            ?? 'Recette gagnante'
+        );
+
+        $userIds = $poll->household->users()->pluck('users.id');
+        $this->notifyUsers(
+            (int) $poll->household_id,
+            $userIds,
+            'poll_winner_announced',
+            'Repas gagnant',
+            "Le repas gagnant est : {$winnerTitle}.",
+            [
+                'poll_id' => (int) $poll->id,
+                'winner_recipe_id' => (int) $winnerRecipeId,
+                'winner_recipe_title' => $winnerTitle,
             ]
         );
     }
@@ -146,8 +176,8 @@ class PollNotificationService
             (int)$poll->household_id,
             $nonVoters,
             'poll_closed_too_late',
-            'Sondage clôturé',
-            'Le sondage est clôturé, il est trop tard pour voter. Consulte les résultats.',
+            'Sondage clÃ´turÃ©',
+            'Le sondage est clÃ´turÃ©, il est trop tard pour voter. Consulte les rÃ©sultats.',
             [
                 'poll_id' => (int) $poll->id,
                 'ends_at' => optional($poll->ends_at)->toIso8601String(),

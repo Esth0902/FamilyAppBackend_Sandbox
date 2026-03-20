@@ -11,10 +11,28 @@ class AddHouseholdMemberRequest extends FormRequest
 {
     private ?Household $resolvedHousehold = null;
 
-    public function authorize(): bool
+    public function actor(): ?User
     {
         $user = $this->user();
-        if (!$user) {
+        return $user instanceof User ? $user : null;
+    }
+
+    public function actorOrFail(): User
+    {
+        $actor = $this->actor();
+        if ($actor instanceof User) {
+            return $actor;
+        }
+
+        throw ValidationException::withMessages([
+            'user' => ['Utilisateur authentifié introuvable.'],
+        ]);
+    }
+
+    public function authorize(): bool
+    {
+        $user = $this->actor();
+        if (!$user instanceof User) {
             return false;
         }
 

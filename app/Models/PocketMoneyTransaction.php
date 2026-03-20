@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Casts\BudgetCommentCast;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -18,6 +19,7 @@ class PocketMoneyTransaction extends Model
 
     protected $casts = [
         'amount' => 'float',
+        'comment' => BudgetCommentCast::class,
     ];
 
     public function household(): BelongsTo

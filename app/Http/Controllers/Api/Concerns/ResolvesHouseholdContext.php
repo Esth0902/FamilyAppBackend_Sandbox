@@ -40,7 +40,7 @@ trait ResolvesHouseholdContext
 
         if (!$household) {
             throw ValidationException::withMessages([
-                'household' => ['Aucun foyer associe a cet utilisateur.'],
+                'household' => ['Aucun foyer associé à cet utilisateur.'],
             ]);
         }
 
@@ -63,7 +63,7 @@ trait ResolvesHouseholdContext
     protected function ensureParentRole(string $role): void
     {
         if ($role !== User::ROLE_PARENT) {
-            abort(403, 'Action reservee aux parents.');
+            abort(403, 'Action reservée aux parents.');
         }
     }
 }

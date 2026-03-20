@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Domain\Budget\ValueObjects\BudgetComment;
 use App\Models\BudgetSetting;
 use App\Models\Household;
 use App\Models\PocketMoneyTransaction;
@@ -235,24 +236,11 @@ class BudgetNotificationScheduler
 
     private function resolveAdvanceRequestKind(PocketMoneyTransaction $transaction): string
     {
-        $comment = (string) ($transaction->comment ?? '');
-        $firstLine = trim(strtok($comment, "\n") ?: '');
-        if (!str_starts_with($firstLine, '[budget-meta]')) {
-            return 'advance';
-        }
+        $comment = $transaction->comment instanceof BudgetComment
+            ? $transaction->comment
+            : BudgetComment::fromStored((string) $transaction->comment);
 
-        $rawMeta = trim(substr($firstLine, strlen('[budget-meta]')));
-        foreach (explode(';', $rawMeta) as $chunk) {
-            if (!str_contains($chunk, '=')) {
-                continue;
-            }
-            [$key, $value] = array_map('trim', explode('=', $chunk, 2));
-            if ($key === 'request_kind' && ($value === 'advance' || $value === 'reimbursement')) {
-                return $value;
-            }
-        }
-
-        return 'advance';
+        return $comment->requestKind;
     }
 
     private function resolvePaymentTime(Household $household): ?string

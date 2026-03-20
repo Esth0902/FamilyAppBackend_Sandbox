@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\HouseholdConnectionController;
 use App\Http\Controllers\Api\HouseholdController;
 use App\Http\Controllers\Api\MealPollController;
 use App\Http\Controllers\Api\NotificationController;
+use App\Http\Controllers\Api\NotificationResolutionController;
 use App\Http\Controllers\Api\RecipeController;
 use App\Http\Controllers\Api\ShoppingListController;
 use App\Http\Controllers\Api\TaskController;
@@ -55,7 +56,7 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'must.change.password'])->gro
     Route::post('/households/leave', [HouseholdController::class, 'leave']);
     Route::get('/households/connected-household', [HouseholdConnectionController::class, 'show']);
     Route::post('/households/connected-household/link-code', [HouseholdConnectionController::class, 'generateCode']);
-    Route::post('/households/connected-household/connect', [HouseholdConnectionController::class, 'connectWithCode']);
+    Route::post('/households/connected-household/connect', [HouseholdConnectionController::class, 'submitRequest']);
     Route::post('/households/connected-household/unlink', [HouseholdConnectionController::class, 'unlink']);
     Route::get('/dashboard', [HouseholdController::class, 'dashboard']);
 
@@ -82,14 +83,16 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'must.change.password'])->gro
     Route::post('/meal-polls/{poll}/validate', [MealPollController::class, 'validateResults']);
 
     // Tasks
-    Route::get('/tasks/board', [TaskController::class, 'board']);
-    Route::post('/tasks/templates', [TaskController::class, 'storeTemplate']);
-    Route::patch('/tasks/templates/{template}', [TaskController::class, 'updateTemplate']);
-    Route::delete('/tasks/templates/{template}', [TaskController::class, 'destroyTemplate']);
-    Route::post('/tasks/instances', [TaskController::class, 'storeInstance']);
-    Route::patch('/tasks/instances/{instance}', [TaskController::class, 'updateInstance']);
-    Route::post('/tasks/instances/{instance}/validate', [TaskController::class, 'validateInstance']);
-    Route::post('/tasks/instances/{instance}/reassignment-request', [TaskController::class, 'requestInstanceReassignment']);
+    Route::middleware('household.context')->group(function (): void {
+        Route::get('/tasks/board', [TaskController::class, 'board']);
+        Route::post('/tasks/templates', [TaskController::class, 'storeTemplate']);
+        Route::patch('/tasks/templates/{template}', [TaskController::class, 'updateTemplate']);
+        Route::delete('/tasks/templates/{template}', [TaskController::class, 'destroyTemplate']);
+        Route::post('/tasks/instances', [TaskController::class, 'storeInstance']);
+        Route::patch('/tasks/instances/{instance}', [TaskController::class, 'updateInstance']);
+        Route::post('/tasks/instances/{instance}/validate', [TaskController::class, 'validateInstance']);
+        Route::post('/tasks/instances/{instance}/reassignment-request', [TaskController::class, 'requestInstanceReassignment']);
+    });
 
     // Calendar
     Route::get('/calendar/board', [CalendarController::class, 'board']);
@@ -103,12 +106,14 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'must.change.password'])->gro
     Route::post('/calendar/meal-plan/{mealPlan}/attendance', [CalendarController::class, 'confirmMealPlanAttendance']);
 
     // Notifications
-    Route::get('/notifications/pending', [NotificationController::class, 'pending']);
-    Route::post('/notifications/{notification}/read', [NotificationController::class, 'read']);
-    Route::post('/notifications/{notification}/household-invite-response', [NotificationController::class, 'respondHouseholdInvite']);
-    Route::post('/notifications/{notification}/household-link-response', [NotificationController::class, 'respondHouseholdLinkRequest']);
-    Route::post('/notifications/{notification}/task-reassignment-response', [NotificationController::class, 'respondTaskReassignmentInvite']);
-    Route::post('/notifications/{notification}/household-deletion-response', [NotificationController::class, 'respondHouseholdDeletion']);
+    Route::get('/notifications/pending', [NotificationController::class, 'index']);
+    Route::post('/notifications/{notification}/read', [NotificationController::class, 'markAsRead']);
+    Route::post('/notifications/read-all', [NotificationController::class, 'markAllAsRead']);
+    Route::delete('/notifications/{notification}', [NotificationController::class, 'destroy']);
+    Route::post('/notifications/{notification}/household-invite-response', [NotificationResolutionController::class, 'respondHouseholdInvite']);
+    Route::post('/notifications/{notification}/household-link-response', [NotificationResolutionController::class, 'respondHouseholdLinkRequest']);
+    Route::post('/notifications/{notification}/task-reassignment-response', [NotificationResolutionController::class, 'respondTaskReassignmentInvite']);
+    Route::post('/notifications/{notification}/household-deletion-response', [NotificationResolutionController::class, 'respondHouseholdDeletion']);
 
     // Shopping Lists
     Route::get('/shopping-lists', [ShoppingListController::class, 'index']);
@@ -117,16 +122,20 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'must.change.password'])->gro
     Route::delete('/shopping-lists/{list}', [ShoppingListController::class, 'destroyList']);
     Route::post('/shopping-lists/{list}/items', [ShoppingListController::class, 'addItem']);
     Route::patch('/shopping-lists/items/{item}', [ShoppingListController::class, 'updateItem']);
+    Route::patch('/shopping-lists/items/{item}/toggle', [ShoppingListController::class, 'toggleItem']);
+    Route::delete('/shopping-lists/{list}/items/checked', [ShoppingListController::class, 'clearCheckedItems']);
     Route::delete('/shopping-lists/items/{item}', [ShoppingListController::class, 'removeItem']);
 
     // Budget
-    Route::get('/budget/board', [BudgetController::class, 'board']);
-    Route::patch('/budget/settings/{user}', [BudgetController::class, 'updateSetting']);
-    Route::post('/budget/adjustments', [BudgetController::class, 'createAdjustment']);
-    Route::patch('/budget/adjustments/{transaction}', [BudgetController::class, 'updateAdjustment']);
-    Route::delete('/budget/adjustments/{transaction}', [BudgetController::class, 'deleteAdjustment']);
-    Route::post('/budget/payments', [BudgetController::class, 'validatePayment']);
-    Route::post('/budget/advances', [BudgetController::class, 'requestAdvance']);
-    Route::post('/budget/reimbursements', [BudgetController::class, 'requestReimbursement']);
-    Route::post('/budget/advances/{transaction}/review', [BudgetController::class, 'reviewAdvance']);
+    Route::middleware('household.context')->group(function (): void {
+        Route::get('/budget/board', [BudgetController::class, 'board']);
+        Route::patch('/budget/settings/{user}', [BudgetController::class, 'updateSetting']);
+        Route::post('/budget/adjustments', [BudgetController::class, 'createAdjustment']);
+        Route::patch('/budget/adjustments/{transaction}', [BudgetController::class, 'updateAdjustment']);
+        Route::delete('/budget/adjustments/{transaction}', [BudgetController::class, 'deleteAdjustment']);
+        Route::post('/budget/payments', [BudgetController::class, 'validatePayment']);
+        Route::post('/budget/advances', [BudgetController::class, 'requestAdvance']);
+        Route::post('/budget/reimbursements', [BudgetController::class, 'requestReimbursement']);
+        Route::post('/budget/advances/{transaction}/review', [BudgetController::class, 'reviewAdvance']);
+    });
 });

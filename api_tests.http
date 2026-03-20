@@ -20,8 +20,9 @@ Accept: application/json
 
 > {%
     if (response.status === 200 || response.status === 201) {
-        client.global.set("auth_token", response.body.token);
-        client.log("Token d'inscription capturé : " + response.body.token);
+        client.global.set("auth_token", response.body.access_token);
+        client.log("Token d'inscription capturé : " + response.body.access_token);
+        client.log("Type de token : " + response.body.token_type);
     } else {
         client.log("Register status: " + response.status);
     }
@@ -38,8 +39,9 @@ Accept: {{contentType}}
 }
 
 > {%
-    client.global.set("auth_token", response.body.token);
-    client.log("Token capturé : " + response.body.token);
+    client.global.set("auth_token", response.body.access_token);
+    client.log("Token capturé : " + response.body.access_token);
+    client.log("Type de token : " + response.body.token_type);
 %}
 
 ### Test de login insensible a la casse sur email
@@ -703,6 +705,25 @@ Authorization: Bearer {{auth_token}}
 # Reponse attendue:
 # - is_checked = true
 # - checked_by (id, name) = utilisateur qui vient de cocher
+
+### Shopping Lists - Cocher/Decocher un element (endpoint dedie)
+PATCH {{baseUrl}}/api/shopping-lists/items/1/toggle
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "is_checked": false
+}
+
+### Shopping Lists - Vider les elements coches d'une liste (parent)
+DELETE {{baseUrl}}/api/shopping-lists/{{shopping_list_id}}/items/checked
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+# Reponse attendue:
+# - message
+# - deleted_count
 
 ### Shopping Lists - Supprimer un element (parent)
 DELETE {{baseUrl}}/api/shopping-lists/items/1

@@ -13,6 +13,7 @@ class ShoppingListItem extends Model
         'name',
         'quantity',
         'unit',
+        'embedding',
         'is_checked',
         'checked_by_user_id',
         'is_manual_addition',

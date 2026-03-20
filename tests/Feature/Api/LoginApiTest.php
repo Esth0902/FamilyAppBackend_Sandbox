@@ -26,7 +26,8 @@ class LoginApiTest extends TestCase
             ->assertJsonPath('user.id', $user->id)
             ->assertJsonStructure([
                 'user',
-                'token',
+                'access_token',
+                'token_type',
             ]);
     }
 
@@ -39,7 +40,14 @@ class LoginApiTest extends TestCase
             'email' => $email,
             'password' => 'Password123!',
             'password_confirmation' => 'Password123!',
-        ])->assertCreated();
+        ])
+            ->assertCreated()
+            ->assertJsonStructure([
+                'user',
+                'access_token',
+                'token_type',
+            ])
+            ->assertJsonPath('token_type', 'Bearer');
 
         $userId = (int) $response->json('user.id');
         $this->assertDatabaseHas('users', [
