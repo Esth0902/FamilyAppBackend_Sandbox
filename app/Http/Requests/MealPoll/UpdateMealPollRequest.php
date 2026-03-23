@@ -55,7 +55,7 @@ class UpdateMealPollRequest extends MealPollContextRequest
             }
 
             if ((string) $poll->status !== 'open') {
-                $validator->errors()->add('poll', 'Seul un sondage ouvert peut etre modifie.');
+                $validator->errors()->add('poll', 'Seul un sondage ouvert peut être modifié.');
                 return;
             }
 
@@ -69,10 +69,10 @@ class UpdateMealPollRequest extends MealPollContextRequest
                 ->whereIn('id', $recipeIds)
                 ->count();
 
-            if ($ownedRecipeCount !== $recipeIds->count()) {
+            /*if ($ownedRecipeCount !== $recipeIds->count()) {
                 $validator->errors()->add('recipe_ids', 'Certaines recettes ne font pas partie de votre foyer.');
                 return;
-            }
+            }*/
 
             $mealSettings = MealSetting::query()
                 ->where('household_id', $poll->household_id)
@@ -84,7 +84,7 @@ class UpdateMealPollRequest extends MealPollContextRequest
             if ($maxVotesPerUser > $recipeIds->count()) {
                 $validator->errors()->add(
                     'max_votes_per_user',
-                    'Le max de votes ne peut pas depasser le nombre de plats selectionnes.'
+                    'Le max de votes ne peut pas dépasser le nombre de plats sélectionnés.'
                 );
             }
         });

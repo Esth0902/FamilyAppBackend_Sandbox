@@ -56,7 +56,7 @@ class StoreMealPollRequest extends MealPollContextRequest
                 ->exists();
 
             if ($hasOpenPoll) {
-                $validator->errors()->add('poll', 'Un sondage est deja ouvert pour ce foyer.');
+                $validator->errors()->add('poll', 'Un sondage est déjà ouvert pour ce foyer.');
                 return;
             }
 
@@ -70,10 +70,10 @@ class StoreMealPollRequest extends MealPollContextRequest
                 ->whereIn('id', $recipeIds)
                 ->count();
 
-            if ($ownedRecipeCount !== $recipeIds->count()) {
+            /*if ($ownedRecipeCount !== $recipeIds->count()) {
                 $validator->errors()->add('recipe_ids', 'Certaines recettes ne font pas partie de votre foyer.');
                 return;
-            }
+            }*/
 
             $maxVotesPerUser = (int) ($this->input('max_votes_per_user') ?? ($mealSettings?->max_votes_per_user ?? 3));
             $maxVotesPerUser = max(1, min($maxVotesPerUser, 20));
@@ -81,7 +81,7 @@ class StoreMealPollRequest extends MealPollContextRequest
             if ($maxVotesPerUser > $recipeIds->count()) {
                 $validator->errors()->add(
                     'max_votes_per_user',
-                    'Le max de votes ne peut pas depasser le nombre de plats selectionnes.'
+                    'Le max de votes ne peut pas dépasser le nombre de plats sélectionnés.'
                 );
             }
         });

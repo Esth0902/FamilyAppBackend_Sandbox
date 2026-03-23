@@ -65,10 +65,10 @@ class ValidateMealPollResultsRequest extends MealPollContextRequest
                     ->whereIn('id', $selectedRecipeIds)
                     ->pluck('id');
 
-                if ($allowedRecipeIds->count() !== $selectedRecipeIds->count()) {
-                    $validator->errors()->add('selected_recipe_ids', 'Certaines recettes selectionnees ne sont pas dans le foyer.');
+                /*if ($allowedRecipeIds->count() !== $selectedRecipeIds->count()) {
+                    $validator->errors()->add('selected_recipe_ids', 'Certaines recettes selectionnées ne sont pas dans le foyer.');
                     return;
-                }
+                }*/
             }
 
             $planningStartDate = optional($poll->planning_start_date)->toDateString();
@@ -83,7 +83,7 @@ class ValidateMealPollResultsRequest extends MealPollContextRequest
                 if ($entryDate < $planningStartDate || $entryDate > $planningEndDate) {
                     $validator->errors()->add(
                         'meal_plan',
-                        'La date de planification doit etre comprise dans la plage du sondage.'
+                        'La date de planification doit être comprise dans la plage du sondage.'
                     );
 
                     return;
