@@ -16,6 +16,8 @@ class HistoryMealPollRequest extends MealPollContextRequest
      */
     public function rules(): array
     {
-        return [];
+        return [
+            'limit' => ['sometimes', 'integer', 'min:1', 'max:100'],
+        ];
     }
 }

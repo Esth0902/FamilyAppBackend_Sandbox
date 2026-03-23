@@ -37,7 +37,13 @@ class RecipeController extends Controller
 {
     public function index(IndexRecipeRequest $request, GetRecipesAction $getRecipesAction): AnonymousResourceCollection
     {
-        $recipes = $getRecipesAction->execute($request->household(), (string) $request->validated('scope', 'mine'));
+        $recipes = $getRecipesAction->execute(
+            $request->household(),
+            (string) $request->validated('scope', 'mine'),
+            $request->has('q') ? (string) $request->input('q') : null,
+            (int) $request->input('limit', 20),
+        );
+
         return RecipeResource::collection($recipes);
     }
 

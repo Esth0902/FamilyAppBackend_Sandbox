@@ -128,6 +128,7 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'must.change.password'])->gro
 
     // Budget
     Route::middleware('household.context')->group(function (): void {
+        Route::get('/budget/history', [BudgetController::class, 'history']);
         Route::get('/budget/board', [BudgetController::class, 'board']);
         Route::patch('/budget/settings/{user}', [BudgetController::class, 'updateSetting']);
         Route::post('/budget/adjustments', [BudgetController::class, 'createAdjustment']);

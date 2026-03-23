@@ -4,14 +4,11 @@ namespace App\Actions\Recipe;
 
 use App\Models\Household;
 use App\Models\Recipe;
-use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 
 class GetRecipesAction
 {
-    /**
-     * @return Collection<int, Recipe>
-     */
-    public function execute(Household $household, string $scope): Collection
+    public function execute(Household $household, string $scope, ?string $searchTerm = null, int $limit = 20): LengthAwarePaginator
     {
         $householdId = (int) $household->id;
 
@@ -28,8 +25,16 @@ class GetRecipesAction
             $query->mineForHousehold($householdId);
         }
 
+        if ($searchTerm !== null) {
+            $driver = $query->getConnection()->getDriverName();
+            $operator = $driver === 'pgsql' ? 'ilike' : 'like';
+            $query->where('title', $operator, '%' . trim($searchTerm) . '%');
+        }
+
+        $limit = max(1, min($limit, 100));
+
         return $query
             ->orderBy('title', 'asc')
-            ->get();
+            ->paginate($limit);
     }
 }

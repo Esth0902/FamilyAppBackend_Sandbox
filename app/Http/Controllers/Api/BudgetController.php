@@ -14,6 +14,7 @@ use App\Actions\Budget\ValidatePaymentAction;
 use App\DTOs\Budget\AdvanceRequestDTO;
 use App\Http\Controllers\Api\Concerns\ResolvesHouseholdContext;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Budget\BudgetHistoryRequest;
 use App\Http\Requests\Budget\CreateAdjustmentRequest;
 use App\Http\Requests\Budget\DeleteAdjustmentRequest;
 use App\Http\Requests\Budget\RequestAdvanceRequest;
@@ -29,6 +30,7 @@ use App\Models\User;
 use App\Queries\Budget\GetBudgetDashboardQuery;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
 class BudgetController extends Controller
 {
@@ -53,6 +55,37 @@ class BudgetController extends Controller
         $payload = $this->getBudgetDashboardQuery->execute($household, (string) $role, (int) $request->user()->id, $request);
 
         return $this->budgetJson($payload);
+    }
+
+    public function history(BudgetHistoryRequest $request): AnonymousResourceCollection
+    {
+        $query = PocketMoneyTransaction::query()
+            ->where('household_id', $request->household()->id)
+            ->with('user:id,name')
+            ->orderByDesc('created_at');
+
+        $kind = (string) $request->input('kind', '');
+        if ($kind === 'payment') {
+            $query->where('type', 'allocation');
+        } elseif ($kind === 'advance') {
+            $query->where('type', 'advance');
+        } else {
+            $query->whereIn('type', ['allocation', 'advance']);
+        }
+
+        if ($request->filled('status')) {
+            $query->where('status', (string) $request->input('status'));
+        }
+
+        if ($request->householdRole() !== User::ROLE_PARENT) {
+            $query->where('user_id', (int) $request->user()->id);
+        } elseif ($request->filled('user_id')) {
+            $query->where('user_id', (int) $request->input('user_id'));
+        }
+
+        $transactions = $query->paginate((int) $request->input('limit', 20));
+
+        return TransactionResource::collection($transactions);
     }
 
     public function updateSetting(UpdateBudgetSettingRequest $request, User $user): JsonResponse

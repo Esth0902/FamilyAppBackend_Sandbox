@@ -5,7 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Actions\Household\{CreateDietaryTagAction, GetDietaryTagsAction, GetHouseholdConfigAction, GetHouseholdDashboardAction, GetHouseholdMembersAction, LeaveHouseholdAction, RefreshMemberTemporaryAccessAction, RemoveMemberAction, UpdateMemberAction};
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Household\{AddHouseholdMemberRequest, CreateDietaryTagRequest, DeleteHouseholdMemberRequest, ListDietaryTagsRequest, ParentHouseholdRequest, RefreshMemberAccessRequest, ShowHouseholdConfigRequest, ShowHouseholdDashboardRequest, ShowHouseholdMembersRequest, StoreHouseholdRequest, UpdateHouseholdConfigRequest, UpdateHouseholdMemberRequest};
-use App\Http\Resources\Household\{DietaryTagResource, HouseholdConfigResource, HouseholdDashboardResource, HouseholdMemberResource};
+use App\Http\Resources\Household\{DietaryTagResource, HouseholdConfigResource, HouseholdMemberResource};
 use App\Models\{DietaryTag, User};
 use App\Services\{HouseholdDeletionService, HouseholdManagerService};
 use App\Support\JsonUtf8Sanitizer;
@@ -83,7 +83,7 @@ class HouseholdController extends Controller
     {
         if (!$request->actor() instanceof User) { return response()->json(['message' => 'Non authentifié.'], 401); }
         if (!$request->household()) { return response()->json(['message' => 'Aucun foyer', 'requires_setup' => true]); }
-        return response()->json(HouseholdDashboardResource::make($this->getHouseholdDashboardAction->execute($request->household())));
+        return response()->json($this->getHouseholdDashboardAction->execute($request->household()));
     }
 
     public function config(ShowHouseholdConfigRequest $request)
@@ -111,4 +111,3 @@ class HouseholdController extends Controller
         return response()->json(JsonUtf8Sanitizer::sanitize($result['payload']), (int) $result['status']);
     }
 }
-

@@ -22,6 +22,7 @@ use App\Http\Requests\MealPoll\VoteMealPollRequest;
 use App\Http\Resources\MealPoll\MealPollResource;
 use App\Models\MealPoll;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
 class MealPollController extends Controller
 {
@@ -36,9 +37,9 @@ class MealPollController extends Controller
     public function history(
         HistoryMealPollRequest $request,
         GetMealPollHistoryAction $getMealPollHistoryAction,
-    ): JsonResponse {
-        $polls = $getMealPollHistoryAction->execute($request->household());
-        return response()->json(['polls' => MealPollResource::collection($polls)->resolve($request)]);
+    ): AnonymousResourceCollection {
+        $polls = $getMealPollHistoryAction->execute($request->household(), (int) $request->input('limit', 20));
+        return MealPollResource::collection($polls);
     }
 
     public function store(

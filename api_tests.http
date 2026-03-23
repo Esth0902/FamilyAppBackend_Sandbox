@@ -226,8 +226,8 @@ Authorization: Bearer {{auth_token}}
     client.log("recipe_id capturé : " + rid);
 %}
 
-### 8) Vérifier la liste des recettes (doit contenir la recette AI)
-GET {{baseUrl}}/api/recipes
+### 8) Vérifier la liste des recettes (paginée + recherche optionnelle)
+GET {{baseUrl}}/api/recipes?scope=mine&limit=20&page=1&q=lasagnes
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
@@ -586,19 +586,22 @@ Authorization: Bearer {{auth_token}}
   ]
 }
 
-### Meal Polls V2 - Historique valide
-GET {{baseUrl}}/api/meal-polls/history
+### Meal Polls V2 - Historique valide (paginé)
+GET {{baseUrl}}/api/meal-polls/history?limit=20&page=1
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
-### Dashboard - Vue complète sondages + tâches + recettes préférées
+### Dashboard - Vue optimisée (compteurs agrégés)
 GET {{baseUrl}}/api/dashboard
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
 # Réponse attendue:
-# - polls_open / polls_closed / polls
-# - tasks_summary: { enabled, range: { from, to }, todo_count, done_count, validated_count }
+# - polls_open_count
+# - polls_closed_count
+# - tasks_todo_count
+# - tasks_done_count
+# - tasks_validated_count
 
 ### Notifications - Recuperer celles en attente d'envoi local
 GET {{baseUrl}}/api/notifications/pending
@@ -1102,15 +1105,19 @@ Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
 
-### Recettes globales - Récupérer toutes les recettes visibles
-GET {{baseUrl}}/api/recipes?scope=all
+### Recettes globales - Récupérer toutes les recettes visibles (paginé)
+GET {{baseUrl}}/api/recipes?scope=all&limit=20&page=1
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
-### Recettes globales - Récupérer uniquement Mes recettes
-GET {{baseUrl}}/api/recipes?scope=mine
+### Recettes globales - Recherche dans Mes recettes
+GET {{baseUrl}}/api/recipes?scope=mine&limit=20&page=1&q=bolo
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
+
+# Réponse attendue:
+# - data[]: recettes formatées via RecipeResource
+# - links + meta: pagination Laravel standard
 
 ### Recettes globales - Ajouter une recette globale à Mes recettes
 POST {{baseUrl}}/api/recipes/{{recipe_id}}/save
@@ -1122,6 +1129,18 @@ DELETE {{baseUrl}}/api/recipes/{{recipe_id}}/save
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 
+
+### Budget - Historique paiements/avances (paginé)
+# kind: payment|advance (optionnel)
+# status: pending|approved|rejected (optionnel)
+# user_id: filtre par membre (parents uniquement)
+GET {{baseUrl}}/api/budget/history?kind=advance&status=pending&limit=20&page=1
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+# Réponse attendue:
+# - data[]: transactions formatées via TransactionResource
+# - links + meta: pagination Laravel standard
 
 ### Budget - Charger le board
 GET {{baseUrl}}/api/budget/board
@@ -1520,4 +1539,3 @@ POST {{baseUrl}}/api/households/leave
 Accept: {{contentType}}
 Authorization: Bearer {{auth_token}}
 X-Household-Id: {{active_household_id}}
-
