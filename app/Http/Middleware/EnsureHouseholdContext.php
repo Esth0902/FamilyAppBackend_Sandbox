@@ -14,8 +14,8 @@ class EnsureHouseholdContext
     {
         $user = $request->user();
         if (!$user) {
-            return $next($request);
-        }
+            abort(401, 'Unauthenticated.');
+}
 
         $requestedHouseholdId = $this->resolveRequestedHouseholdId($request);
         if ($requestedHouseholdId !== null) {
@@ -29,7 +29,9 @@ class EnsureHouseholdContext
                 ]);
             }
         } else {
-            $household = $user->households()->first();
+            $household = $user->households()
+                ->orderBy('households.id')
+                ->first();
         }
 
         if (!$household) {
@@ -48,13 +50,16 @@ class EnsureHouseholdContext
     private function resolveRequestedHouseholdId(Request $request): ?int
     {
         $rawValue = $request->header('X-Household-Id');
+
         if (!is_string($rawValue) || trim($rawValue) === '') {
-            return null;
+        return null;
         }
 
-        $parsed = (int) $rawValue;
+        $parsed = filter_var($rawValue, FILTER_VALIDATE_INT, [
+            'options' => ['min_range' => 1],
+            ]);
 
-        return $parsed > 0 ? $parsed : null;
+        return $parsed === false ? null : $parsed;
     }
 }
 

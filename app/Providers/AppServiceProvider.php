@@ -53,6 +53,26 @@ class AppServiceProvider extends ServiceProvider
                 ->by($request->user()?->id ?: $request->ip());
         });
 
+        RateLimiter::for('login', function (Request $request) {
+            $perMinute = max(1, (int) env('API_LOGIN_RATE_LIMIT_PER_MINUTE', 5));
+
+            $email = strtolower(trim((string) $request->input('email')));
+            $ip = (string) $request->ip();
+
+            return [
+                Limit::perMinute($perMinute)->by($email.'|'.$ip),
+                Limit::perMinute($perMinute * 6)->by($ip),
+            ];
+        });
+
+        RateLimiter::for('register', function (Request $request) {
+            $perMinute = max(1, (int) env('API_REGISTER_RATE_LIMIT_PER_MINUTE', 3));
+
+            return Limit::perMinute($perMinute)
+                ->by((string) $request->ip());
+        });
+
+       
         ResetPassword::createUrlUsing(function (object $notifiable, string $token) {
             $frontendBaseUrl = (string) (config('app.frontend_url') ?: config('app.url'));
             // Keep URI schemes such as "frontend://" intact while normalizing classic trailing slashes.
