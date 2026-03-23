@@ -57,7 +57,7 @@ class PollNotificationService
             $userIds,
             'poll_opened',
             'Nouveau sondage repas',
-            'Un nouveau sondage a Ã©tÃ© ouvert, viens voter !',
+            'Un nouveau sondage a été ouvert, viens voter !',
             [
                 'poll_id' => $poll->id,
             ]
@@ -86,8 +86,8 @@ class PollNotificationService
             (int)$poll->household_id,
             $userIds,
             'poll_closing_soon',
-            'Sondage bientÃ´t clÃ´turÃ©',
-            'Le sondage repas se termine bientÃ´t, viens vite voter !',
+            'Sondage bientôt clôturé',
+            'Le sondage repas se termine bientôt, viens vite voter !',
             [
                 'poll_id' => $poll->id,
                 'ends_at' => optional($poll->ends_at)->toIso8601String(),
@@ -110,8 +110,8 @@ class PollNotificationService
             (int)$poll->household_id,
             collect([(int)$parentId]),
             'poll_needs_validation',
-            'ClÃ´ture du sondage',
-            'Le sondage est terminÃ©, les plats gagnants doivent Ãªtre validÃ©s.',
+            'Clôture du sondage',
+            'Le sondage est terminé, les plats gagnants doivent être validés.',
             [
                 'poll_id' => $poll->id,
             ]
@@ -125,8 +125,8 @@ class PollNotificationService
             (int)$poll->household_id,
             $userIds,
             'poll_validated',
-            'Resultats du sondage',
-            'Les plats gagnants ont Ã©tÃ© validÃ©s.',
+            'Résultats du sondage',
+            'Les plats gagnants ont été validés.',
             [
                 'poll_id' => $poll->id,
             ]
@@ -176,8 +176,8 @@ class PollNotificationService
             (int)$poll->household_id,
             $nonVoters,
             'poll_closed_too_late',
-            'Sondage clÃ´turÃ©',
-            'Le sondage est clÃ´turÃ©, il est trop tard pour voter. Consulte les rÃ©sultats.',
+            'Sondage clôturé',
+            'Le sondage est clôturé, il est trop tard pour voter. Consulte les résultats.',
             [
                 'poll_id' => (int) $poll->id,
                 'ends_at' => optional($poll->ends_at)->toIso8601String(),
