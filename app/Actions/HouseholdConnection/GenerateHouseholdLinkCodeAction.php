@@ -46,7 +46,7 @@ class GenerateHouseholdLinkCodeAction
     {
         if ($this->resolveConnectedHousehold($household) instanceof Household) {
             throw ValidationException::withMessages([
-                'connection' => ['Ce foyer est deja connecte a un autre foyer.'],
+                'connection' => ['Ce foyer est déjà connecté à un autre foyer.'],
             ]);
         }
 
@@ -61,7 +61,7 @@ class GenerateHouseholdLinkCodeAction
 
         if ($pendingRequest) {
             throw ValidationException::withMessages([
-                'connection' => ['Une demande de liaison est deja en attente pour ce foyer.'],
+                'connection' => ['Une demande de liaison est déjà en attente pour ce foyer.'],
             ]);
         }
     }

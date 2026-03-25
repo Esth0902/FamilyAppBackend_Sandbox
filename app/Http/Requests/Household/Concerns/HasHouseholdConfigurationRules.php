@@ -12,6 +12,7 @@ trait HasHouseholdConfigurationRules
         return [
             'household_name' => 'nullable|string|max:255',
             'name' => 'nullable|string|max:255',
+            'is_setup_completed' => ['sometimes', 'boolean'],
 
             'modules' => ($modulesRequired ? 'required' : 'nullable') . '|array',
             'modules.meals.enabled' => 'nullable|boolean',

@@ -27,7 +27,7 @@ class UnlinkHouseholdsAction
             $linkedHouseholdId = (int) ($sourceHousehold->linked_household_id ?? 0);
             if ($linkedHouseholdId <= 0) {
                 throw ValidationException::withMessages([
-                    'connection' => ['Aucun foyer connecte a dissocier.'],
+                    'connection' => ['Aucun foyer connecté à dissocier.'],
                 ]);
             }
 

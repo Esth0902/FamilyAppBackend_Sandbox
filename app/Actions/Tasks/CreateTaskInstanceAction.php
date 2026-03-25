@@ -184,6 +184,14 @@ class CreateTaskInstanceAction
             ->values();
     }
 
+    private function resolveRotationAnchorDate(TaskTemplate $template, Carbon $fallbackDate): Carbon
+    {
+        if ($template->inter_household_week_start) {
+            return Carbon::parse($template->inter_household_week_start)->startOfDay();
+            }
+            return $this->resolveTemplateAnchorDate($template, $fallbackDate)->startOfDay();
+    }
+
     /**
      * @return array<int, int>
      */
@@ -211,13 +219,17 @@ class CreateTaskInstanceAction
                 return [];
             }
 
-            $anchorWeek = $this->resolveTemplateAnchorDate($template, $date)->startOfWeek(Carbon::MONDAY);
-            $targetWeek = $date->copy()->startOfWeek(Carbon::MONDAY);
-            $weeksFromAnchor = max(0, (int) $anchorWeek->diffInWeeks($targetWeek));
+            $anchorDate = $this->resolveRotationAnchorDate($template, $date);
+            $targetDate = $date->copy()->startOfDay();
+
+            $daysFromAnchor = (int) $anchorDate->diffInDays($targetDate, false);
+            $weeksFromAnchor = $daysFromAnchor < 0 ? 0 : (int) floor($daysFromAnchor / 7);
+
             $cycleWeeks = max(1, min(2, (int) ($template->rotation_cycle_weeks ?? 1)));
             $rotationOffset = (int) floor($weeksFromAnchor / $cycleWeeks);
 
             $assigneeIndex = $rotationOffset % $rotationUserIds->count();
+
             return [(int) ($rotationUserIds->get($assigneeIndex) ?? 0)];
         }
 
@@ -278,6 +290,6 @@ class CreateTaskInstanceAction
             $instance->update(['user_id' => $primaryAssigneeId]);
         }
 
-        $instance->unsetRelation('assignées');
+        $instance->unsetRelation('assignees');
     }
 }

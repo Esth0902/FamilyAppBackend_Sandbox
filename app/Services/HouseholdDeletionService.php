@@ -241,7 +241,7 @@ class HouseholdDeletionService
             $household = Household::query()->find($householdId);
             if (!$household) {
                 throw ValidationException::withMessages([
-                    'household' => ['Ce foyer n’existe plus.'],
+                    'household' => ['Ce foyer n\'existe plus.'],
                 ]);
             }
 
@@ -282,7 +282,7 @@ class HouseholdDeletionService
 
             if (!in_array($responderId, $requiredParentIds, true)) {
                 throw ValidationException::withMessages([
-                    'notification' => ['Vous n’êtes pas concerné par cette demande.'],
+                    'notification' => ['Vous n\'êtes pas concerné par cette demande.'],
                 ]);
             }
 
@@ -469,7 +469,7 @@ class HouseholdDeletionService
 
             if ((string) $locked->type !== self::TYPE_CANCEL_WINDOW) {
                 throw ValidationException::withMessages([
-                    'notification' => ['Cette notification ne permet pas d’annuler une suppression.'],
+                    'notification' => ['Cette notification ne permet pas d\'annuler une suppression.'],
                 ]);
             }
 
@@ -491,7 +491,7 @@ class HouseholdDeletionService
             $household = Household::query()->find($householdId);
             if (!$household) {
                 throw ValidationException::withMessages([
-                    'household' => ['Ce foyer n’existe plus.'],
+                    'household' => ['Ce foyer n\'existe plus.'],
                 ]);
             }
 
@@ -519,7 +519,7 @@ class HouseholdDeletionService
             $controlStatus = (string) ($controlData['status'] ?? '');
             if ($controlStatus !== 'scheduled') {
                 throw ValidationException::withMessages([
-                    'notification' => ['Cette suppression n’est plus planifiée.'],
+                    'notification' => ['Cette suppression n\'est plus planifiée.'],
                 ]);
             }
 

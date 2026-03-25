@@ -46,7 +46,7 @@ class RespondToHouseholdLinkAction
             $currentStatus = (string) ($data['status'] ?? 'pending');
             if (in_array($currentStatus, ['accepted', 'refused'], true)) {
                 throw ValidationException::withMessages([
-                    'notification' => ['Cette demande a deja ete traitee.'],
+                    'notification' => ['Cette demande a déjà été traitée.'],
                 ]);
             }
 
@@ -65,7 +65,7 @@ class RespondToHouseholdLinkAction
 
             if ((string) $linkRequest->status !== 'pending') {
                 throw ValidationException::withMessages([
-                    'notification' => ['Cette demande n est plus en attente.'],
+                    'notification' => ['Cette demande n\'est plus en attente.'],
                 ]);
             }
 
@@ -100,7 +100,7 @@ class RespondToHouseholdLinkAction
                     || ($toLinkedHouseholdId > 0 && $toLinkedHouseholdId !== (int) $fromHousehold->id)
                 ) {
                     throw ValidationException::withMessages([
-                        'connection' => ['Un des deux foyers est deja lie a un autre foyer.'],
+                        'connection' => ['Un des deux foyers est déjà lié à un autre foyer.'],
                     ]);
                 }
 
@@ -145,7 +145,7 @@ class RespondToHouseholdLinkAction
             ];
 
             return [
-                'message' => $isAccepted ? 'Demande acceptee.' : 'Demande refusee.',
+                'message' => $isAccepted ? 'Demande acceptée.' : 'Demande refusée.',
                 'request' => [
                     'id' => (int) $linkRequest->id,
                     'status' => $newStatus,

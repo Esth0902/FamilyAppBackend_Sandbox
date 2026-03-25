@@ -80,7 +80,7 @@ class CloseMealPollAction
 
         $this->notificationService->notifyPollClosedTooLate($poll);
         $this->notificationService->notifyPollNeedsValidation($poll);
-        $this->notificationService->notifyPollWinner($poll, $winnerRecipeId);
+        //$this->notificationService->notifyPollWinner($poll, $winnerRecipeId);
 
         $this->realtimePublisher->publishHousehold(
             householdId: (int) $poll->household_id,

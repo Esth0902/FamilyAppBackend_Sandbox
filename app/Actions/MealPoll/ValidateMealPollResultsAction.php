@@ -49,7 +49,7 @@ class ValidateMealPollResultsAction
 
         if ($selectedRecipeIds->isEmpty()) {
             throw ValidationException::withMessages([
-                'selected_recipe_ids' => ['Aucune recette selectionnee pour validation.'],
+                'selected_recipe_ids' => ['Aucune recette selectionnée pour validation.'],
             ]);
         }
 

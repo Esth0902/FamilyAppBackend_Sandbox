@@ -40,6 +40,7 @@ class HouseholdConfigResource extends JsonResource
             ],
             'config' => [
                 'household_name' => (string) $household->name,
+                'is_setup_completed' => (bool) $household->is_setup_completed,
                 'modules' => [
                     'meals' => [
                         'enabled' => (bool) ($settings?->has_meals ?? true),

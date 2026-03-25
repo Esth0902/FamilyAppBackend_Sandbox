@@ -42,8 +42,11 @@ class HouseholdManagerService
         $this->validateTasksConfiguration($modules['tasks']);
 
         return DB::transaction(function () use ($householdName, $modules, $members, $owner): array {
-            $household = Household::create(['name' => $householdName]);
-
+            $household = Household::create([
+                'name' => $householdName,
+                'is_setup_completed' => false,
+            ]);
+            
             $household->users()->attach($owner->id, [
                 'role' => User::ROLE_PARENT,
                 'nickname' => $owner->name ?? 'Admin',
@@ -97,7 +100,7 @@ class HouseholdManagerService
             return [
                 'status' => 201,
                 'payload' => [
-                    'message' => 'Foyer cree et configure avec succes.',
+                    'message' => 'Foyer créé et configuré avec succès.',
                     'household' => $household,
                     'household_settings' => $householdSettings,
                     'meal_settings' => $mealSettings,
@@ -143,7 +146,7 @@ class HouseholdManagerService
             if ($existingUser) {
                 if ((int) $existingUser->id === (int) $inviter->id) {
                     throw ValidationException::withMessages([
-                        'email' => ['Vous ne pouvez pas vous inviter vous-meme.'],
+                        'email' => ['Vous ne pouvez pas vous inviter vous-même.'],
                     ]);
                 }
 
@@ -152,7 +155,7 @@ class HouseholdManagerService
                     ->exists();
                 if ($alreadyMember) {
                     throw ValidationException::withMessages([
-                        'email' => ['Cet utilisateur fait deja partie du foyer.'],
+                        'email' => ['Cet utilisateur fait déjà partie du foyer.'],
                     ]);
                 }
 
@@ -195,7 +198,7 @@ class HouseholdManagerService
                 return [
                     'status' => 202,
                     'payload' => [
-                        'message' => 'Invitation envoyee.',
+                        'message' => 'Invitation envoyée.',
                         'invitation' => [
                             'status' => 'pending',
                             'invited_user_id' => (int) $existingUser->id,
@@ -243,7 +246,7 @@ class HouseholdManagerService
             return [
                 'status' => 201,
                 'payload' => [
-                    'message' => 'Compte cree avec succes',
+                    'message' => 'Compte créé avec succès',
                     'user' => $newUser,
                     'member' => $this->toHouseholdMemberPayload($member),
                     'generated_password' => $rawPassword,
@@ -271,8 +274,14 @@ class HouseholdManagerService
         $modules = $this->normalizeModuleConfiguration($validated);
         $this->validateTasksConfiguration($modules['tasks']);
 
-        return DB::transaction(function () use ($household, $householdName, $modules, $updatedByUserId): array {
-            $household->update(['name' => $householdName]);
+        $householdUpdateData = ['name' => $householdName];
+        if (array_key_exists('is_setup_completed', $validated)) {
+            $householdUpdateData['is_setup_completed'] = (bool) $validated['is_setup_completed'];
+        }
+
+return DB::transaction(function () use ($household, $householdUpdateData, $modules, $updatedByUserId): array {
+
+            $household->update($householdUpdateData);
 
             $householdSettings = HouseholdSetting::updateOrCreate(
                 ['household_id' => $household->id],
@@ -320,12 +329,13 @@ class HouseholdManagerService
                 'calendar' => (bool) $modules['calendar']['enabled'],
             ];
 
-            DB::afterCommit(function () use ($household, $householdName, $enabledModules, $updatedByUserId): void {
+            DB::afterCommit(function () use ($household, $householdUpdateData, $enabledModules, $updatedByUserId): void {
                 $this->publishHouseholdRealtime(
                     householdId: (int) $household->id,
                     type: 'config_updated',
                     payload: [
-                        'household_name' => (string) $householdName,
+                        'household_name' => (string) $householdUpdateData['name'],
+                        'is_setup_completed' => (bool) $household->is_setup_completed, 
                         'modules' => [
                             'meals' => ['enabled' => (bool) $enabledModules['meals']],
                             'tasks' => ['enabled' => (bool) $enabledModules['tasks']],
@@ -440,7 +450,7 @@ class HouseholdManagerService
 
         if (count($children) === 0) {
             throw ValidationException::withMessages([
-                'members' => ["Le module Budget exige au moins un membre avec le role 'enfant'."],
+                'members' => ["Le module Budget exige au moins un membre avec le rôle 'enfant'."],
             ]);
         }
 
@@ -466,7 +476,7 @@ class HouseholdManagerService
 
                 if ($budget[$key] === null) {
                     throw ValidationException::withMessages([
-                        "members.$index.budget.$key" => ["Le champ budget '$key' ne peut pas etre vide."],
+                        "members.$index.budget.$key" => ["Le champ budget '$key' ne peut pas être vide."],
                     ]);
                 }
             }
@@ -1064,7 +1074,7 @@ class HouseholdManagerService
         return "Bonjour {$name} !\n\n"
             . "Ton compte FamilyFlow est prêt.\n"
             . "Connecte-toi avec les identifiants suivants :\n"
-            . "E)mail : {$email}\n"
+            . "E-mail : {$email}\n"
             . "Mot de passe temporaire : {$rawPassword}\n\n"
             . "N'oublie pas de modifier ton mot de passe dès la première connexion.";
     }

@@ -44,14 +44,14 @@ class SubmitHouseholdLinkAction
 
             if (!$code instanceof HouseholdLinkCode) {
                 throw ValidationException::withMessages([
-                    'code' => ['Ce code de liaison est invalide ou expire.'],
+                    'code' => ['Ce code de liaison est invalide ou expiré.'],
                 ]);
             }
 
             $targetHouseholdId = (int) $code->household_id;
             if ($targetHouseholdId === $requesterHouseholdId) {
                 throw ValidationException::withMessages([
-                    'code' => ['Ce code appartient deja a votre foyer.'],
+                    'code' => ['Ce code appartient déjà à votre foyer.'],
                 ]);
             }
 
@@ -81,7 +81,7 @@ class SubmitHouseholdLinkAction
                 ->exists();
             if ($requestAlreadyExists) {
                 throw ValidationException::withMessages([
-                    'code' => ['Une demande de liaison est deja en attente entre ces deux foyers.'],
+                    'code' => ['Une demande de liaison est déjà en attente entre ces deux foyers.'],
                 ]);
             }
 
@@ -141,7 +141,7 @@ class SubmitHouseholdLinkAction
     {
         if ($this->resolveConnectedHousehold($household) instanceof Household) {
             throw ValidationException::withMessages([
-                'connection' => ['Ce foyer est deja connecte a un autre foyer.'],
+                'connection' => ['Ce foyer est déjà connecté à un autre foyer.'],
             ]);
         }
 
@@ -156,7 +156,7 @@ class SubmitHouseholdLinkAction
 
         if ($pendingRequest) {
             throw ValidationException::withMessages([
-                'connection' => ['Une demande de liaison est deja en attente pour ce foyer.'],
+                'connection' => ['Une demande de liaison est déjà en attente pour ce foyer.'],
             ]);
         }
     }

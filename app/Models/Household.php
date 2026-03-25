@@ -14,6 +14,7 @@ class Household extends Model
         'premium_ends_at' => 'datetime',
         'trial_ends_at' => 'datetime',
         'is_lifetime_premium' => 'boolean',
+        'is_setup_completed' => 'boolean',
     ];
 
     public function users()
