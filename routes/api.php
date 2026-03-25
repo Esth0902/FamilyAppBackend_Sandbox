@@ -80,7 +80,8 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'must.change.password'])->gro
             Route::prefix('connected-household')->group(function (): void {
                 Route::get('/', [HouseholdConnectionController::class, 'show']);
                 Route::post('/link-code', [HouseholdConnectionController::class, 'generateCode']);
-                Route::post('/connect', [HouseholdConnectionController::class, 'submitRequest']);
+                Route::post('/connect', [HouseholdConnectionController::class, 'submitRequest'])
+                    ->middleware(['auth:sanctum', 'throttle:submit-link-code']);
                 Route::post('/unlink', [HouseholdConnectionController::class, 'unlink']);
             });
         });

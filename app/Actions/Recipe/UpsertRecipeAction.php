@@ -50,11 +50,11 @@ class UpsertRecipeAction
     /**
      * @param  array<string, mixed>  $validated
      */
-    public function createAi(array $validated): Recipe
+    public function createAi(int $householdId, array $validated): Recipe
     {
-        return DB::transaction(function () use ($validated): Recipe {
+        return DB::transaction(function () use ($householdId, $validated): Recipe {
             $recipe = Recipe::query()->create([
-                'household_id' => (int) $validated['household_id'],
+                'household_id' => $householdId,
                 'is_global' => false,
                 'title' => (string) $validated['title'],
                 'type' => (string) $validated['type'],
@@ -62,11 +62,10 @@ class UpsertRecipeAction
                 'instructions' => (string) $validated['instructions'],
                 'is_ai_generated' => true,
                 'base_servings' => 1,
-            ]);
+                ]);
 
             $syncData = $this->syncRecipeIngredientsAction->execute((array) ($validated['ingredients'] ?? []));
             $recipe->ingredients()->sync($syncData);
-
             return $recipe->load(['ingredients', 'household.mealSettings']);
         });
     }

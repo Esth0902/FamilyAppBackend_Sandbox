@@ -14,12 +14,7 @@ class FinalizeAiRecipeStoreRequest extends RecipeContextRequest
             return false;
         }
 
-        $householdId = $this->input('household_id');
-        if (!is_numeric($householdId)) {
-            return true;
-        }
-
-        return $user->can('create', [Recipe::class, (int) $householdId]);
+        return $user->can('create', [Recipe::class, (int) $this->household()->id]);
     }
 
     /**
@@ -28,7 +23,6 @@ class FinalizeAiRecipeStoreRequest extends RecipeContextRequest
     public function rules(): array
     {
         return [
-            'household_id' => ['required', 'integer', 'exists:households,id'],
             'title' => ['required', 'string', 'max:255'],
             'type' => ['required', 'string', 'in:' . implode(',', self::RECIPE_TYPES)],
             'description' => ['required', 'string'],

@@ -77,7 +77,7 @@ class RecipeController extends Controller
 
     public function finalizeAiStore(FinalizeAiRecipeStoreRequest $request, UpsertRecipeAction $upsertRecipeAction): JsonResponse
     {
-        $recipe = $upsertRecipeAction->createAi($request->validated());
+        $recipe = $upsertRecipeAction->createAi((int) $request->household()->id, $request->validated());
         return RecipeResource::make($recipe)->response()->setStatusCode(201);
     }
 

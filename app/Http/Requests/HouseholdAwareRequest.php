@@ -30,5 +30,16 @@ abstract class HouseholdAwareRequest extends FormRequest
 
         return User::ROLE_CHILD;
     }
+
+    protected function authorizeResourceOwnership(int $resourceHouseholdId): bool
+    {
+        return $this->household()->id === $resourceHouseholdId;
+    }
+
+    protected function authorizeParentAction(): bool
+    {
+        return $this->householdRole() === User::ROLE_PARENT;
+    }
 }
+
 

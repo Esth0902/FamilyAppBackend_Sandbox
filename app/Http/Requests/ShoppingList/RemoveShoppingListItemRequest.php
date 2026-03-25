@@ -15,6 +15,7 @@ class RemoveShoppingListItemRequest extends ShoppingListContextRequest
         }
 
         $household = $this->household();
+        $this->ensureShoppingModuleEnabled($household);
         $this->ensureItemBelongsToHousehold($this->route('item') instanceof ShoppingListItem ? $this->route('item') : null, $household);
         $this->ensureParentRole();
 

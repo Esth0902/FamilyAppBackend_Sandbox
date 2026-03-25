@@ -7,8 +7,6 @@ Broadcast::channel('App.Models.User.{id}', function ($user, $id) {
     return (int) $user->id === (int) $id;
 });
 
-Broadcast::channel('household.{householdId}', function (User $user, int $householdId): bool {
-    return $user->households()
-        ->where('households.id', $householdId)
-        ->exists();
+Broadcast::channel('household.{householdId}', function ($user, $householdId) {
+    return $user->households()->where('household_id', $householdId)->exists();
 });

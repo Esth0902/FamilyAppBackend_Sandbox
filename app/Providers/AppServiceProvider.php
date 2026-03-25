@@ -72,10 +72,18 @@ class AppServiceProvider extends ServiceProvider
                 ->by((string) $request->ip());
         });
 
+        RateLimiter::for('submit-link-code', function (Request $request) {
+            return Limit::perHour(5)->by($request->user()?->id ?: $request->ip())
+                ->response(function (Request $request, array $headers) {
+                    return response()->json([
+                        'message' => 'Trop de tentatives erronées. Veuillez réessayer plus tard.',
+                    ], 429, $headers);
+            });
+     });
+
        
         ResetPassword::createUrlUsing(function (object $notifiable, string $token) {
             $frontendBaseUrl = (string) (config('app.frontend_url') ?: config('app.url'));
-            // Keep URI schemes such as "frontend://" intact while normalizing classic trailing slashes.
             $frontendBaseUrl = preg_replace('#(?<!:)/+$#', '', $frontendBaseUrl) ?: $frontendBaseUrl;
             $separator = Str::endsWith($frontendBaseUrl, '://') ? '' : '/';
             $email = urlencode((string) $notifiable->getEmailForPasswordReset());

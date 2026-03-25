@@ -60,7 +60,7 @@ abstract class MealPollContextRequest extends FormRequest
     protected function ensurePollIsOpenForVoting(MealPoll $poll): void
     {
         if ((string) $poll->status !== 'open' || now()->greaterThan($poll->ends_at)) {
-            throw new AuthorizationException('Le sondage est cloture.');
+            throw new AuthorizationException('Le sondage est clôturé.');
         }
     }
 
