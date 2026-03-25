@@ -61,14 +61,14 @@ class ValidateMealPollResultsRequest extends MealPollContextRequest
 
             if ($selectedRecipeIds->isNotEmpty()) {
                 $allowedRecipeIds = Recipe::query()
-                    ->mineForHousehold((int) $poll->household_id)
+                    ->visibleForHousehold((int) $poll->household_id)
                     ->whereIn('id', $selectedRecipeIds)
                     ->pluck('id');
 
-                /*if ($allowedRecipeIds->count() !== $selectedRecipeIds->count()) {
+                if ($allowedRecipeIds->count() !== $selectedRecipeIds->count()) {
                     $validator->errors()->add('selected_recipe_ids', 'Certaines recettes selectionnées ne sont pas dans le foyer.');
                     return;
-                }*/
+                }
             }
 
             $planningStartDate = optional($poll->planning_start_date)->toDateString();

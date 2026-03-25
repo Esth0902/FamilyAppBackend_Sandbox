@@ -66,14 +66,14 @@ class StoreMealPollRequest extends MealPollContextRequest
                 ->values();
 
             $ownedRecipeCount = Recipe::query()
-                ->mineForHousehold((int) $household->id)
+                ->visibleForHousehold((int) $household->id)
                 ->whereIn('id', $recipeIds)
                 ->count();
 
-            /*if ($ownedRecipeCount !== $recipeIds->count()) {
+            if ($ownedRecipeCount !== $recipeIds->count()) {
                 $validator->errors()->add('recipe_ids', 'Certaines recettes ne font pas partie de votre foyer.');
                 return;
-            }*/
+            }
 
             $maxVotesPerUser = (int) ($this->input('max_votes_per_user') ?? ($mealSettings?->max_votes_per_user ?? 3));
             $maxVotesPerUser = max(1, min($maxVotesPerUser, 20));

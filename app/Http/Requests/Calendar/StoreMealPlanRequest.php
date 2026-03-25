@@ -63,7 +63,7 @@ class StoreMealPlanRequest extends CalendarContextRequest
             if (
                 $recipeId !== null
                 && !Recipe::query()
-                    ->mineForHousehold((int) $this->household()->id)
+                    ->visibleForHousehold((int) $this->household()->id)
                     ->where('id', $recipeId)
                     ->exists()
             ) {

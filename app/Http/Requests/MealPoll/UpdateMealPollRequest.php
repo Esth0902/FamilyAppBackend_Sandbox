@@ -65,14 +65,14 @@ class UpdateMealPollRequest extends MealPollContextRequest
                 ->values();
 
             $ownedRecipeCount = Recipe::query()
-                ->mineForHousehold((int) $poll->household_id)
+                ->visibleForHousehold((int) $poll->household_id)
                 ->whereIn('id', $recipeIds)
                 ->count();
 
-            /*if ($ownedRecipeCount !== $recipeIds->count()) {
+            if ($ownedRecipeCount !== $recipeIds->count()) {
                 $validator->errors()->add('recipe_ids', 'Certaines recettes ne font pas partie de votre foyer.');
                 return;
-            }*/
+            }
 
             $mealSettings = MealSetting::query()
                 ->where('household_id', $poll->household_id)
