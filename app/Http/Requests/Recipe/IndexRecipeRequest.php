@@ -21,6 +21,7 @@ class IndexRecipeRequest extends RecipeContextRequest
             'q' => ['sometimes', 'string', 'max:255'],
             'limit' => ['sometimes', 'integer', 'min:1', 'max:100'],
             'servings' => ['sometimes', 'integer', 'min:1', 'max:30'],
+            'type' => ['sometimes', 'string', 'in:petit-déjeuner,entrée,plat principal,dessert,collation,boisson,autre'],
         ];
     }
 }

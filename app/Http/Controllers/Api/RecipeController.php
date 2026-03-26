@@ -41,8 +41,9 @@ class RecipeController extends Controller
             $request->household(),
             (string) $request->validated('scope', 'mine'),
             $request->has('q') ? (string) $request->input('q') : null,
+            $request->has('type') ? (string) $request->input('type') : null,
             (int) $request->input('limit', 20),
-        );
+);
 
         return RecipeResource::collection($recipes);
     }

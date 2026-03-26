@@ -8,8 +8,13 @@ use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 
 class GetRecipesAction
 {
-    public function execute(Household $household, string $scope, ?string $searchTerm = null, int $limit = 20): LengthAwarePaginator
-    {
+    public function execute(
+        Household $household,
+        string $scope,
+        ?string $searchTerm = null,
+        ?string $type = null,
+        int $limit = 20
+    ): LengthAwarePaginator {
         $householdId = (int) $household->id;
 
         $query = Recipe::query()
@@ -29,6 +34,10 @@ class GetRecipesAction
             $driver = $query->getConnection()->getDriverName();
             $operator = $driver === 'pgsql' ? 'ilike' : 'like';
             $query->where('title', $operator, '%' . trim($searchTerm) . '%');
+        }
+
+        if ($type !== null && trim($type) !== '' && $type !== 'all') {
+            $query->where('type', trim($type));
         }
 
         $limit = max(1, min($limit, 100));
