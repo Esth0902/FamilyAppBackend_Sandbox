@@ -9,6 +9,7 @@ use App\Events\Budget\AdvanceReviewedEvent;
 use App\Models\BudgetSetting;
 use App\Models\Household;
 use App\Models\PocketMoneyTransaction;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class ReviewAdvanceAction
@@ -41,6 +42,13 @@ class ReviewAdvanceAction
         $this->ensureBudgetModuleEnabled($household);
         $this->ensureParentRole($role);
         $this->ensureTransactionBelongsToHousehold($transaction, $household);
+
+        return DB::transaction(function () use ($household, $transaction, $payload): BudgetTransactionResult {
+            /** @var PocketMoneyTransaction $transaction */
+            $transaction = PocketMoneyTransaction::query()
+                ->whereKey($transaction->id)
+                ->lockForUpdate()
+                ->firstOrFail();
 
         if ((string) $transaction->type !== self::TYPE_ADVANCE) {
             throw ValidationException::withMessages([
@@ -160,6 +168,7 @@ class ReviewAdvanceAction
                 : ($isReimbursement ? 'Demande de remboursement refusée.' : 'Demande d\'avance refusée.'),
             transaction: $transaction,
         );
+        });
     }
 
     private function mergeTransactionComment(?string $existingComment, string $reviewComment): ?string

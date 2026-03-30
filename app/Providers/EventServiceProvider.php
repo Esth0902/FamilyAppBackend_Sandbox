@@ -59,6 +59,13 @@ use Illuminate\Foundation\Support\Providers\EventServiceProvider as ServiceProvi
 
 class EventServiceProvider extends ServiceProvider
 {
+    public function register(): void
+    {
+        // We use an explicit $listen map; auto-discovery would register listeners twice.
+        static::disableEventDiscovery();
+        parent::register();
+    }
+
     /**
      * @var array<class-string, array<int, class-string>>
      */

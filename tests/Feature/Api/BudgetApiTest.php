@@ -348,6 +348,51 @@ class BudgetApiTest extends TestCase
         $this->assertStringContainsString('Montant ajust', $justification);
     }
 
+    public function test_reviewing_same_advance_twice_does_not_duplicate_child_notification(): void
+    {
+        [$parent, $child, $household] = $this->createHouseholdWithBudgetModule();
+        BudgetSetting::query()->create([
+            'household_id' => $household->id,
+            'user_id' => $child->id,
+            'base_amount' => 20,
+            'recurrence' => 'weekly',
+            'reset_day' => 1,
+            'allow_advances' => true,
+            'max_advance_amount' => 10,
+        ]);
+
+        $request = PocketMoneyTransaction::query()->create([
+            'household_id' => $household->id,
+            'user_id' => $child->id,
+            'amount' => 10,
+            'type' => 'advance',
+            'status' => 'pending',
+            'comment' => 'Sortie scolaire',
+        ]);
+
+        Sanctum::actingAs($parent);
+
+        $this->postJson("/api/budget/advances/{$request->id}/review", [
+            'status' => 'approved',
+            'amount' => 8,
+            'comment' => 'Validation parent',
+        ])->assertOk();
+
+        $this->postJson("/api/budget/advances/{$request->id}/review", [
+            'status' => 'approved',
+            'amount' => 8,
+            'comment' => 'Validation parent bis',
+        ])->assertStatus(422);
+
+        $notificationCount = UserNotification::query()
+            ->where('user_id', $child->id)
+            ->where('type', 'budget_advance_reviewed')
+            ->where('data->transaction_id', $request->id)
+            ->count();
+
+        $this->assertSame(1, $notificationCount);
+    }
+
     public function test_parent_from_other_household_cannot_review_advance(): void
     {
         [$parent, $child, $household] = $this->createHouseholdWithBudgetModule();
