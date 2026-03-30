@@ -29,6 +29,8 @@ Accept: application/json
 %}
 
 ### Test de login
+# La réponse inclut maintenant `user.household_id` et `user.households[]`
+# pour fiabiliser la redirection mobile dès la connexion.
 POST {{baseUrl}}/api/login
 Content-Type: {{contentType}}
 Accept: {{contentType}}
@@ -149,6 +151,7 @@ Authorization: Bearer {{auth_token}}
 
 ### Créer un foyer supplémentaire (multi-foyer)
 # L'utilisateur connecté devient parent du nouveau foyer.
+# `household.is_setup_completed` passe à `true` dès qu'un nom valide est fourni.
 POST {{baseUrl}}/api/households
 Content-Type: {{contentType}}
 Accept: {{contentType}}

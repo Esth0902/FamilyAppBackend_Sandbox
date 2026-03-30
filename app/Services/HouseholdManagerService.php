@@ -44,7 +44,8 @@ class HouseholdManagerService
         return DB::transaction(function () use ($householdName, $modules, $members, $owner): array {
             $household = Household::create([
                 'name' => $householdName,
-                'is_setup_completed' => false,
+                // Un foyer avec un nom explicite est considéré configuré, même sans autres membres.
+                'is_setup_completed' => true,
             ]);
             
             $household->users()->attach($owner->id, [
@@ -274,7 +275,11 @@ class HouseholdManagerService
         $modules = $this->normalizeModuleConfiguration($validated);
         $this->validateTasksConfiguration($modules['tasks']);
 
-        $householdUpdateData = ['name' => $householdName];
+        $householdUpdateData = [
+            'name' => $householdName,
+            // Dès qu'un nom valide est enregistré, le setup peut être considéré terminé.
+            'is_setup_completed' => true,
+        ];
         if (array_key_exists('is_setup_completed', $validated)) {
             $householdUpdateData['is_setup_completed'] = (bool) $validated['is_setup_completed'];
         }

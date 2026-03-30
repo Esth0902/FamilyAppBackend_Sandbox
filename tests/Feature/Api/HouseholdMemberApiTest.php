@@ -93,7 +93,8 @@ class HouseholdMemberApiTest extends TestCase
 
         $response
             ->assertCreated()
-            ->assertJsonPath('household.name', 'Foyer secondaire');
+            ->assertJsonPath('household.name', 'Foyer secondaire')
+            ->assertJsonPath('household.is_setup_completed', true);
 
         $newHouseholdId = (int) $response->json('household.id');
         $this->assertGreaterThan(0, $newHouseholdId);
@@ -102,6 +103,11 @@ class HouseholdMemberApiTest extends TestCase
             'household_id' => $newHouseholdId,
             'user_id' => $parent->id,
             'role' => User::ROLE_PARENT,
+        ]);
+        $this->assertDatabaseHas('households', [
+            'id' => $newHouseholdId,
+            'name' => 'Foyer secondaire',
+            'is_setup_completed' => true,
         ]);
     }
 
@@ -541,6 +547,36 @@ class HouseholdMemberApiTest extends TestCase
             'label' => 'Sans lactose',
             'type' => 'restriction',
         ])->assertForbidden();
+    }
+
+    public function test_updating_household_name_marks_setup_as_completed_for_single_parent_household(): void
+    {
+        [$household, $parent] = $this->createHouseholdWithMembers();
+        $household->forceFill([
+            'is_setup_completed' => false,
+        ])->save();
+
+        Sanctum::actingAs($parent);
+
+        $this->patchJson('/api/households/config', [
+            'household_name' => 'Foyer prêt',
+            'modules' => [
+                'meals' => ['enabled' => true],
+                'tasks' => ['enabled' => false],
+                'budget' => ['enabled' => false],
+                'calendar' => ['enabled' => false],
+            ],
+        ], [
+            'X-Household-Id' => (string) $household->id,
+        ])
+            ->assertOk()
+            ->assertJsonPath('household.id', (int) $household->id)
+            ->assertJsonPath('household.is_setup_completed', true);
+
+        $this->assertDatabaseHas('households', [
+            'id' => (int) $household->id,
+            'is_setup_completed' => true,
+        ]);
     }
 
     public function test_parent_cannot_remove_last_parent_role(): void

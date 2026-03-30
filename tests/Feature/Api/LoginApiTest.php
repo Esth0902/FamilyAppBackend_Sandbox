@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Api;
 
+use App\Models\Household;
 use App\Models\User;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Tests\TestCase;
@@ -72,5 +73,32 @@ class LoginApiTest extends TestCase
             ->assertStatus(422)
             ->assertJsonValidationErrors(['email'])
             ->assertJsonPath('errors.email.0', "Cet e-mail est déjà utilisé.");
+    }
+
+    public function test_login_response_contains_household_context_when_user_has_membership(): void
+    {
+        $user = User::factory()->create([
+            'email' => 'household.context.' . uniqid() . '@test.com',
+        ]);
+
+        $household = Household::query()->create([
+            'name' => 'Foyer contexte',
+            'is_setup_completed' => true,
+        ]);
+
+        $household->users()->attach((int) $user->id, [
+            'role' => User::ROLE_PARENT,
+            'nickname' => 'Parent principal',
+        ]);
+
+        $this->postJson('/api/login', [
+            'email' => $user->email,
+            'password' => 'password',
+        ])
+            ->assertOk()
+            ->assertJsonPath('user.id', (int) $user->id)
+            ->assertJsonPath('user.household_id', (int) $household->id)
+            ->assertJsonPath('user.households.0.id', (int) $household->id)
+            ->assertJsonPath('user.households.0.pivot.role', User::ROLE_PARENT);
     }
 }
