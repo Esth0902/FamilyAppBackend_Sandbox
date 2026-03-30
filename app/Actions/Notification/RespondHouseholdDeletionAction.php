@@ -35,8 +35,8 @@ class RespondHouseholdDeletionAction
 
             return [
                 'message' => $action === 'accept'
-                    ? 'Demande de suppression acceptee.'
-                    : 'Demande de suppression refusee.',
+                    ? 'Demande de suppression acceptée.'
+                    : 'Demande de suppression refusée.',
                 'deletion_request' => $result,
             ];
         }

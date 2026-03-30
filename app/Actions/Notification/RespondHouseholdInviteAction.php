@@ -44,7 +44,7 @@ class RespondHouseholdInviteAction
 
             if (in_array($currentStatus, ['accepted', 'refused'], true)) {
                 throw ValidationException::withMessages([
-                    'notification' => ['Cette invitation a deja ete traitee.'],
+                    'notification' => ['Cette invitation a déjà été traitée.'],
                 ]);
             }
 
@@ -57,7 +57,7 @@ class RespondHouseholdInviteAction
             $household = Household::query()->find($householdId);
             if (!$household instanceof Household) {
                 throw ValidationException::withMessages([
-                    'household' => ['Ce foyer n existe plus.'],
+                    'household' => ['Ce foyer n\'existe plus.'],
                 ]);
             }
 
@@ -108,15 +108,15 @@ class RespondHouseholdInviteAction
                     userId: $inviterUserId,
                     householdId: (int) $household->id,
                     type: 'household_invite_responded',
-                    title: $isAcceptedStatus ? 'Invitation foyer acceptee' : 'Invitation foyer refusee',
+                    title: $isAcceptedStatus ? 'Invitation foyer acceptée' : 'Invitation foyer refusée',
                     body: $isAcceptedStatus
                         ? sprintf(
-                            '%s a accepte l\'invitation a rejoindre le foyer %s.',
+                            '%s a accepté l\'invitation à rejoindre le foyer %s.',
                             (string) ($user->name ?? 'Un membre'),
                             (string) $household->name
                         )
                         : sprintf(
-                            '%s a refuse l\'invitation a rejoindre le foyer %s.',
+                            '%s a refusé l\'invitation à rejoindre le foyer %s.',
                             (string) ($user->name ?? 'Un membre'),
                             (string) $household->name
                         ),
@@ -158,7 +158,7 @@ class RespondHouseholdInviteAction
                 ->firstOrFail();
 
             return [
-                'message' => $isAccepted ? 'Invitation acceptee.' : 'Invitation refusee.',
+                'message' => $isAccepted ? 'Invitation acceptée.' : 'Invitation refusée.',
                 'invitation' => [
                     'status' => (string) $data['status'],
                     'household_id' => (int) $household->id,

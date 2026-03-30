@@ -25,7 +25,7 @@ class RespondTaskReassignmentInviteAction
     {
         if ((string) $notification->type !== 'task_reassignment_invite') {
             throw ValidationException::withMessages([
-                'notification' => ["Cette notification n'est pas une demande de reprise de tache."],
+                'notification' => ["Cette notification n'est pas une demande de reprise de tâche."],
             ]);
         }
 
@@ -42,7 +42,7 @@ class RespondTaskReassignmentInviteAction
             $currentStatus = (string) ($data['status'] ?? 'pending');
             if (in_array($currentStatus, ['accepted', 'refused'], true)) {
                 throw ValidationException::withMessages([
-                    'notification' => ['Cette demande a deja ete traitee.'],
+                    'notification' => ['Cette demande a déjà été traitée.'],
                 ]);
             }
 
@@ -58,7 +58,7 @@ class RespondTaskReassignmentInviteAction
 
             if ((int) $user->id !== $invitedUserId) {
                 throw ValidationException::withMessages([
-                    'notification' => ['Cette demande ne vous est pas destinee.'],
+                    'notification' => ['Cette demande ne vous est pas destinée.'],
                 ]);
             }
 
@@ -72,7 +72,7 @@ class RespondTaskReassignmentInviteAction
                 ->first();
             if (!$instance instanceof TaskInstance || (int) ($instance->template?->household_id ?? 0) !== $householdId) {
                 throw ValidationException::withMessages([
-                    'task' => ['La tache liee a cette demande est introuvable.'],
+                    'task' => ['La tâche liée à cette demande est introuvable.'],
                 ]);
             }
 
@@ -131,10 +131,10 @@ class RespondTaskReassignmentInviteAction
                     userId: $requesterUserId,
                     householdId: $householdId,
                     type: 'task_reassignment_invite_responded',
-                    title: $isAccepted ? 'Reprise de tache acceptee' : 'Reprise de tache refusee',
+                    title: $isAccepted ? 'Reprise de tâche acceptée' : 'Reprise de tâche refusée',
                     body: $isAccepted
-                        ? sprintf('%s a accepte de reprendre %s dans le foyer %s.', (string) ($user->name ?? 'Un membre'), $taskName, $householdName)
-                        : sprintf('%s a refuse de reprendre %s dans le foyer %s.', (string) ($user->name ?? 'Un membre'), $taskName, $householdName),
+                        ? sprintf('%s a accepté de reprendre %s dans le foyer %s.', (string) ($user->name ?? 'Un membre'), $taskName, $householdName)
+                        : sprintf('%s a refusé de reprendre %s dans le foyer %s.', (string) ($user->name ?? 'Un membre'), $taskName, $householdName),
                     data: [
                         'household_id' => $householdId,
                         'household_name' => $householdName,
@@ -193,7 +193,7 @@ class RespondTaskReassignmentInviteAction
             });
 
             return [
-                'message' => $isAccepted ? 'Demande acceptee.' : 'Demande refusee.',
+                'message' => $isAccepted ? 'Demande acceptée.' : 'Demande refusée.',
                 'invitation' => [
                     'status' => (string) $data['status'],
                     'task_instance_id' => $instanceId,
