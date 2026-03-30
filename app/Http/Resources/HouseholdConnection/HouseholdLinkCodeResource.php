@@ -69,6 +69,6 @@ class HouseholdLinkCodeResource extends JsonResource
         return "Invitation de liaison FamilyFlow\n\n"
             . "Foyer : {$householdName}\n"
             . "Code de liaison : {$code}\n\n"
-            . "Ouvre FamilyFlow > Modifier le foyer > Foyer connecté, puis encode ce code.";
+            . "Ouvre FamilyFlow > Modifier le foyer > Foyer connecté, puis entre ce code.";
     }
 }
