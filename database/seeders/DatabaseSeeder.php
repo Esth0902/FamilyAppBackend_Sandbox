@@ -39,12 +39,6 @@ class DatabaseSeeder extends Seeder
             'password' => Hash::make('password'),
         ]);
 
-        $parent3 = User::create([
-            'name' => 'Esther',
-            'email' => 'esther@test.com',
-            'password' => Hash::make('password'),
-        ]);
-
         $enfant1 = User::create([
             'name' => 'Alexandre',
             'email' => 'alexandre@test.com',
@@ -75,14 +69,13 @@ class DatabaseSeeder extends Seeder
         $maisonMaman = Household::create(['name' => 'Florisquatteurs', 'is_joint_custody' => true]);
 
         // Lien entre les deux maisons
-            //$maisonPapa->update(['linked_household_id' => $maisonMaman->id]);
-            //$maisonMaman->update(['linked_household_id' => $maisonPapa->id]);
+            $maisonPapa->update(['linked_household_id' => $maisonMaman->id]);
+            $maisonMaman->update(['linked_household_id' => $maisonPapa->id]);
 
         // 3. ATTACHEMENT DES USERS (Pivot)
 
         $maisonMaman->users()->attach([
             $parent1->id => ['role' => 'parent', 'nickname' => 'Mamounette'],
-            $parent3->id => ['role' => 'parent', 'nickname' => null],
             $enfant1->id => ['role' => 'enfant', 'nickname' => 'Alex'],
             $enfant2->id => ['role' => 'enfant', 'nickname' => 'Bo'],
             $enfant3->id => ['role' => 'enfant', 'nickname' => 'Nath'],
@@ -95,8 +88,9 @@ class DatabaseSeeder extends Seeder
             $enfant3->id => ['role' => 'enfant', 'nickname' => null],
         ]);
 
-/*
-        4. RÉGLAGES DES MODULES
+
+        //4. RÉGLAGES DES MODULES
+
         foreach ([$maisonPapa, $maisonMaman] as $foyer) {
             HouseholdSetting::create(['household_id' => $foyer->id]);
             MealSetting::create(['household_id' => $foyer->id]);
@@ -105,7 +99,8 @@ class DatabaseSeeder extends Seeder
         $tagIds = DietaryTag::whereIn('key', ['vegan', 'crustaces', 'pas-de-coriandre'])->pluck('id');
         $maisonPapa->dietaryTags()->syncWithoutDetaching($tagIds);
 
-        5. BUDGETS
+        //5. BUDGETS
+
         BudgetSetting::create([
             'household_id' => $maisonPapa->id,
             'user_id' => $enfant1->id,
@@ -174,7 +169,7 @@ class DatabaseSeeder extends Seeder
             'name' => 'Faire la lessive',
             'is_rotation' => true,
         ]);
-*/
+
         // 7. RECETTES ET INGRÉDIENTS
         $pates = Ingredient::create(['name' => 'Pâtes', 'category' => 'épicerie salée']);
         $tomate = Ingredient::create(['name' => 'Sauce Tomate', 'category' => 'épicerie salée']);
@@ -200,8 +195,9 @@ class DatabaseSeeder extends Seeder
             $pates->id => ['quantity' => 500, 'unit' => 'g'],
             $tomate->id => ['quantity' => 1, 'unit' => 'pot'],
         ]);
-/*
-        // 8. SONDAGE REPAS
+
+        //8. SONDAGE REPAS
+
         $poll = MealPoll::create([
             'household_id' => $maisonMaman->id,
             'starts_at' => now(),
@@ -231,6 +227,5 @@ class DatabaseSeeder extends Seeder
             'end_at' => now()->addDays(1)->setHour(15)->setMinute(0),
             'is_shared_with_other_household' => true,
         ]);
-*/
     }
 }
