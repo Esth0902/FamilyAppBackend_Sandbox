@@ -17,10 +17,11 @@ class RecipeApiTest extends TestCase
     {
         [$parentA, $householdA] = $this->createHouseholdMember(User::ROLE_PARENT, 'Foyer A');
         [$parentB, $householdB] = $this->createHouseholdMember(User::ROLE_PARENT, 'Foyer B');
+        $uniqueToken = 'scope-all-' . uniqid();
 
         $recipeA = Recipe::query()->create([
             'household_id' => $householdA->id,
-            'title' => 'Recette foyer A',
+            'title' => "Recette foyer A {$uniqueToken}",
             'type' => 'plat principal',
         ]);
 
@@ -33,18 +34,18 @@ class RecipeApiTest extends TestCase
         $globalRecipe = Recipe::query()->create([
             'household_id' => null,
             'is_global' => true,
-            'title' => 'Recette globale test',
+            'title' => "Recette globale test {$uniqueToken}",
             'type' => 'plat principal',
         ]);
 
         Sanctum::actingAs($parentA);
 
-        $response = $this->getJson('/api/recipes?scope=all');
+        $response = $this->getJson('/api/recipes?scope=all&limit=100&q=' . urlencode($uniqueToken));
 
         $response
             ->assertOk()
-            ->assertJsonFragment(['id' => $recipeA->id, 'title' => 'Recette foyer A'])
-            ->assertJsonFragment(['id' => $globalRecipe->id, 'title' => 'Recette globale test'])
+            ->assertJsonFragment(['id' => $recipeA->id, 'title' => "Recette foyer A {$uniqueToken}"])
+            ->assertJsonFragment(['id' => $globalRecipe->id, 'title' => "Recette globale test {$uniqueToken}"])
             ->assertJsonMissing(['title' => 'Recette foyer B']);
     }
 

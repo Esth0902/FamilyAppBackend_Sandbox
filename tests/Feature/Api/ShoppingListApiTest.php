@@ -175,7 +175,12 @@ class ShoppingListApiTest extends TestCase
             ->assertJsonPath('id', $existingItem->id)
             ->assertJsonPath('quantity', '3');
 
-        $this->assertDatabaseCount('shopping_list_items', 1);
+        $this->assertSame(
+            1,
+            ShoppingListItem::query()
+                ->where('shopping_list_id', $list->id)
+                ->count()
+        );
         $this->assertDatabaseHas('shopping_list_items', [
             'id' => $existingItem->id,
             'quantity' => '3',
