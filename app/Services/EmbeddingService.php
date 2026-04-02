@@ -9,6 +9,10 @@ use OpenAI\Laravel\Facades\OpenAI;
 
 class EmbeddingService
 {
+    public function __construct(private readonly AiUsageLogger $aiUsageLogger)
+    {
+    }
+
     private const DEFAULT_DIMENSIONS = 512;
 
     /**
@@ -31,12 +35,17 @@ class EmbeddingService
             return null;
         }
 
+        $model = env('OPENAI_EMBEDDING_MODEL', 'text-embedding-3-small');
+        $startedAt = microtime(true);
+
         try {
             $response = OpenAI::embeddings()->create([
-                'model' => env('OPENAI_EMBEDDING_MODEL', 'text-embedding-3-small'),
+                'model' => $model,
                 'input' => $input,
                 'dimensions' => $dimensions,
             ]);
+            $latencyMs = (int) round((microtime(true) - $startedAt) * 1000);
+            $this->aiUsageLogger->logSuccess('embedding', $response, $model, $latencyMs);
 
             $embedding = $response->embeddings[0]->embedding ?? null;
             if (!is_array($embedding) || count($embedding) !== $dimensions) {
@@ -45,6 +54,8 @@ class EmbeddingService
 
             return array_map(static fn($value): float => (float) $value, $embedding);
         } catch (\Throwable $exception) {
+            $latencyMs = (int) round((microtime(true) - $startedAt) * 1000);
+            $this->aiUsageLogger->logError('embedding', $model, $exception->getMessage(), $latencyMs);
             Log::warning('Embedding generation failed: ' . $exception->getMessage());
             return null;
         }
@@ -149,4 +160,3 @@ class EmbeddingService
         }, $columns);
     }
 }
-

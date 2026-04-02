@@ -8,6 +8,10 @@ use OpenAI\Laravel\Facades\OpenAI;
 
 class AiService
 {
+    public function __construct(private readonly AiUsageLogger $aiUsageLogger)
+    {
+    }
+
     public const RECIPE_TYPES = [
         'petit-déjeuner','entrée','plat principal','dessert','collation','boisson','autre'
     ];
@@ -83,6 +87,7 @@ RÈGLES :
     private function executeRequest(string $systemPrompt, string $userPrompt, string $expected, int $count = 5)
     {
         $model = env('OPENROUTER_MODEL') ?: 'auto';
+        $startedAt = microtime(true);
 
         try {
             $result = OpenAI::chat()->create([
@@ -93,6 +98,9 @@ RÈGLES :
                 ],
                 'temperature' => 0.2,
             ]);
+
+            $latencyMs = (int) round((microtime(true) - $startedAt) * 1000);
+            $this->aiUsageLogger->logSuccess('chat', $result, $model, $latencyMs);
 
             $content = $result->choices[0]->message->content ?? '';
 
@@ -110,6 +118,8 @@ RÈGLES :
             return $normalized ?? $this->fallback($expected, $count);
 
         } catch (\Throwable $e) {
+            $latencyMs = (int) round((microtime(true) - $startedAt) * 1000);
+            $this->aiUsageLogger->logError('chat', (string) $model, $e->getMessage(), $latencyMs);
             Log::error("AiService crash: " . $e->getMessage());
             return $this->fallback($expected, $count);
         }
