@@ -50,6 +50,8 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'must.change.password'])->gro
     Route::prefix('notifications')->group(function (): void {
         Route::get('/pending', [NotificationController::class, 'index']);
         Route::post('/read-all', [NotificationController::class, 'markAllAsRead']);
+        Route::post('/push-token', [NotificationController::class, 'registerPushToken']);
+        Route::delete('/push-token', [NotificationController::class, 'revokePushToken']);
         Route::post('/{notification}/read', [NotificationController::class, 'markAsRead']);
         Route::delete('/{notification}', [NotificationController::class, 'destroy']);
 

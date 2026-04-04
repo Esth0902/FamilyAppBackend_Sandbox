@@ -188,6 +188,9 @@ class HouseholdManagerService
                         payload: [
                             'notification_id' => (int) $invitationNotification->id,
                             'household_id' => (int) $household->id,
+                            'type' => (string) $invitationNotification->type,
+                            'title' => (string) $invitationNotification->title,
+                            'body' => (string) $invitationNotification->body,
                             'household_name' => (string) $household->name,
                             'inviter_user_id' => (int) $inviter->id,
                             'inviter_name' => (string) ($inviter->name ?? 'Parent'),
@@ -790,6 +793,9 @@ return DB::transaction(function () use ($household, $householdUpdateData, $modul
                     payload: [
                         'notification_id' => (int) $invitationNotification->id,
                         'household_id' => (int) $household->id,
+                        'type' => (string) $invitationNotification->type,
+                        'title' => (string) $invitationNotification->title,
+                        'body' => (string) $invitationNotification->body,
                         'household_name' => (string) $household->name,
                         'inviter_user_id' => (int) $inviter->id,
                         'inviter_name' => (string) ($inviter->name ?? 'Parent'),

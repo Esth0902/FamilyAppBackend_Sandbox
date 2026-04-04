@@ -637,6 +637,34 @@ Authorization: Bearer {{auth_token}}
 # - même format que /notifications/pending
 # - inclut les notifications des autres foyers où l'utilisateur est membre
 
+### Notifications Push - Enregistrer un token Expo
+POST {{baseUrl}}/api/notifications/push-token
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "token": "ExponentPushToken[xxxxxx]",
+  "platform": "android",
+  "device_name": "Pixel 8"
+}
+
+# Réponse attendue:
+# - message = "Token push enregistré."
+
+### Notifications Push - Désactiver un token Expo (ou tous les tokens actifs)
+DELETE {{baseUrl}}/api/notifications/push-token
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "token": "ExponentPushToken[xxxxxx]"
+}
+
+# Réponse attendue:
+# - updated_count >= 0
+
 ### Notifications - Marquer lue
 POST {{baseUrl}}/api/notifications/{{notification_id}}/read
 Accept: {{contentType}}

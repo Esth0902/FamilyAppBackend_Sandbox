@@ -35,4 +35,10 @@ return [
         ],
     ],
 
+    'expo_push' => [
+        'enabled' => env('EXPO_PUSH_ENABLED', true),
+        'endpoint' => env('EXPO_PUSH_ENDPOINT', 'https://exp.host/--/api/v2/push/send'),
+        'timeout' => (int) env('EXPO_PUSH_TIMEOUT', 8),
+    ],
+
 ];

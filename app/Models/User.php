@@ -96,6 +96,11 @@ class User extends Authenticatable
         return $this->hasMany(UserNotification::class);
     }
 
+    public function pushTokens()
+    {
+        return $this->hasMany(UserPushToken::class);
+    }
+
     public function setEmailAttribute(?string $value): void
     {
         if ($value === null) {

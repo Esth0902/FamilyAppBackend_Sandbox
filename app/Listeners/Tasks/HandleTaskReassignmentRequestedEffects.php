@@ -23,6 +23,9 @@ class HandleTaskReassignmentRequestedEffects implements ShouldQueue
             payload: [
                 'notification_id' => (int) $notification->id,
                 'household_id' => $event->householdId,
+                'type' => (string) $notification->type,
+                'title' => (string) $notification->title,
+                'body' => (string) $notification->body,
                 'household_name' => (string) data_get($notification->data, 'household_name', 'ce foyer'),
                 'task_instance_id' => (int) data_get($notification->data, 'task_instance_id'),
                 'task_name' => (string) data_get($notification->data, 'task_name', 'Tâche'),

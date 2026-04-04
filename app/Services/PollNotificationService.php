@@ -9,6 +9,10 @@ use Illuminate\Support\Collection;
 
 class PollNotificationService
 {
+    public function __construct(private readonly RealtimePublisher $realtimePublisher)
+    {
+    }
+
     /**
      * @param  array<string, mixed>|null  $data
      */
@@ -22,8 +26,8 @@ class PollNotificationService
         $scheduledFor = null
     ): void {
         $uniqueIds = $userIds
-            ->map(fn($id) => (int)$id)
-            ->filter(fn($id) => $id > 0)
+            ->map(static fn ($id): int => (int) $id)
+            ->filter(static fn (int $id): bool => $id > 0)
             ->unique()
             ->values();
 
@@ -31,29 +35,28 @@ class PollNotificationService
             return;
         }
 
-        $now = now();
-        $rows = $uniqueIds->map(function (int $userId) use ($householdId, $type, $title, $body, $data, $scheduledFor, $now): array {
-            return [
+        foreach ($uniqueIds as $userId) {
+            $notification = UserNotification::query()->create([
                 'household_id' => $householdId,
-                'user_id' => $userId,
+                'user_id' => (int) $userId,
                 'type' => $type,
                 'title' => $title,
                 'body' => $body,
-                'data' => $data ? json_encode($data, JSON_UNESCAPED_UNICODE) : null,
+                'data' => ($data ?? []) + ['household_id' => $householdId],
                 'scheduled_for' => $scheduledFor,
-                'created_at' => $now,
-                'updated_at' => $now,
-            ];
-        })->all();
+            ]);
 
-        UserNotification::insert($rows);
+            if ($this->isReadyToPublish($notification)) {
+                $this->publishNotificationCreated($notification);
+            }
+        }
     }
 
     public function notifyPollOpened(MealPoll $poll): void
     {
         $userIds = $poll->household->users()->pluck('users.id');
         $this->notifyUsers(
-            (int)$poll->household_id,
+            (int) $poll->household_id,
             $userIds,
             'poll_opened',
             'Nouveau sondage repas',
@@ -67,7 +70,7 @@ class PollNotificationService
     public function notifyPollReminder(MealPoll $poll, Collection $userIds): void
     {
         $this->notifyUsers(
-            (int)$poll->household_id,
+            (int) $poll->household_id,
             $userIds,
             'poll_reminder',
             'Rappel vote sondage',
@@ -83,7 +86,7 @@ class PollNotificationService
     {
         $userIds = $poll->household->users()->pluck('users.id');
         $this->notifyUsers(
-            (int)$poll->household_id,
+            (int) $poll->household_id,
             $userIds,
             'poll_closing_soon',
             'Sondage bientôt clôturé',
@@ -107,8 +110,8 @@ class PollNotificationService
         }
 
         $this->notifyUsers(
-            (int)$poll->household_id,
-            collect([(int)$parentId]),
+            (int) $poll->household_id,
+            collect([(int) $parentId]),
             'poll_needs_validation',
             'Clôture du sondage',
             'Le sondage est terminé, les plats gagnants doivent être validés.',
@@ -122,7 +125,7 @@ class PollNotificationService
     {
         $userIds = $poll->household->users()->pluck('users.id');
         $this->notifyUsers(
-            (int)$poll->household_id,
+            (int) $poll->household_id,
             $userIds,
             'poll_validated',
             'Résultats du sondage',
@@ -173,7 +176,7 @@ class PollNotificationService
         }
 
         $this->notifyUsers(
-            (int)$poll->household_id,
+            (int) $poll->household_id,
             $nonVoters,
             'poll_closed_too_late',
             'Sondage clôturé',
@@ -205,8 +208,8 @@ class PollNotificationService
     {
         $allUserIds = $poll->household?->users
             ?->pluck('id')
-            ->map(static fn($id): int => (int) $id)
-            ->filter(static fn(int $id): bool => $id > 0)
+            ->map(static fn ($id): int => (int) $id)
+            ->filter(static fn (int $id): bool => $id > 0)
             ->values()
             ?? collect();
 
@@ -216,11 +219,42 @@ class PollNotificationService
 
         $voterIds = $poll->votes()
             ->pluck('user_id')
-            ->map(static fn($id): int => (int) $id)
-            ->filter(static fn(int $id): bool => $id > 0)
+            ->map(static fn ($id): int => (int) $id)
+            ->filter(static fn (int $id): bool => $id > 0)
             ->unique()
             ->values();
 
         return $allUserIds->diff($voterIds)->values();
+    }
+
+    private function isReadyToPublish(UserNotification $notification): bool
+    {
+        $now = now();
+
+        if ($notification->sent_at !== null) {
+            return false;
+        }
+
+        if ($notification->scheduled_for === null) {
+            return true;
+        }
+
+        return $notification->scheduled_for->lessThanOrEqualTo($now);
+    }
+
+    private function publishNotificationCreated(UserNotification $notification): void
+    {
+        $this->realtimePublisher->publishUser(
+            userId: (int) $notification->user_id,
+            module: 'notifications',
+            type: 'notification_created',
+            payload: [
+                'notification_id' => (int) $notification->id,
+                'household_id' => (int) $notification->household_id,
+                'type' => (string) $notification->type,
+                'title' => (string) $notification->title,
+                'body' => (string) $notification->body,
+            ],
+        );
     }
 }
