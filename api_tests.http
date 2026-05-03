@@ -966,6 +966,8 @@ Authorization: Bearer {{auth_token}}
 #   (present, not_home, later, unanswered avec noms des membres)
 # - events[].my_participation + events[].participation_overview
 #   (participate, not_participate, unanswered avec noms des membres)
+# - events[].audience_mode + events[].response_required + events[].invitation
+# - Les événements non invités ne sont pas renvoyés dans le board
 
 > {%
   const events = Array.isArray(response.body?.events) ? response.body.events : [];
@@ -993,7 +995,9 @@ Authorization: Bearer {{auth_token}}
   "description": "Controle annuel a 15h20",
   "start_at": "2026-02-24T15:20:00",
   "end_at": "2026-02-24T16:00:00",
-  "is_shared_with_other_household": false
+  "is_shared_with_other_household": false,
+  "audience_mode": "all_members",
+  "response_required": true
 }
 
 > {%
@@ -1015,7 +1019,9 @@ Authorization: Bearer {{auth_token}}
   "description": "Information utile aux deux foyers",
   "start_at": "2026-02-27T18:00:00",
   "end_at": "2026-02-27T20:00:00",
-  "is_shared_with_other_household": true
+  "is_shared_with_other_household": true,
+  "audience_mode": "all_members",
+  "response_required": false
 }
 
 ### Calendar - Modifier un evenement existant
@@ -1029,7 +1035,43 @@ Authorization: Bearer {{auth_token}}
   "description": "Controle annuel deplace",
   "start_at": "2026-02-24T16:00:00",
   "end_at": "2026-02-24T16:30:00",
-  "is_shared_with_other_household": false
+  "is_shared_with_other_household": false,
+  "audience_mode": "selected_members",
+  "invited_user_ids": [{{member_id}}],
+  "response_required": true
+}
+
+### Calendar - Creer un evenement "moi uniquement" (info seulement)
+POST {{baseUrl}}/api/calendar/events
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "title": "Rappel personnel",
+  "description": "Evenement prive",
+  "start_at": "2026-02-25T18:00:00",
+  "end_at": "2026-02-25T18:30:00",
+  "is_shared_with_other_household": false,
+  "audience_mode": "only_me",
+  "response_required": false
+}
+
+### Calendar - Creer un evenement pour certains membres du foyer
+POST {{baseUrl}}/api/calendar/events
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "title": "Reunion ecole",
+  "description": "Invite uniquement un membre",
+  "start_at": "2026-02-26T17:00:00",
+  "end_at": "2026-02-26T18:00:00",
+  "is_shared_with_other_household": false,
+  "audience_mode": "selected_members",
+  "invited_user_ids": [{{member_id}}],
+  "response_required": true
 }
 
 ### Calendar - Creer un meal plan (parent, avec recette)
@@ -1115,6 +1157,9 @@ Authorization: Bearer {{auth_token}}
   "status": "not_participate",
   "reason": "Indisponible ce soir"
 }
+# Attention:
+# - reponse possible uniquement si l utilisateur est invite
+# - reponse bloquee si response_required=false (422)
 
 # Notifications attendues:
 # - parents: calendar_meal_presence_updated (si status not_home/later)

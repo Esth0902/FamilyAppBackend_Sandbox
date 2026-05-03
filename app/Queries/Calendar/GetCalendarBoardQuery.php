@@ -40,8 +40,29 @@ class GetCalendarBoardQuery
         $sharedViewEnabled = (bool) ($calendarSettings['shared_view_enabled'] ?? true);
 
         $events = Event::query()
-            ->where(function ($query) use ($currentHouseholdId, $linkedHouseholdId, $sharedViewEnabled): void {
-                $query->where('household_id', $currentHouseholdId);
+            ->where(function ($query) use (
+                $currentHouseholdId,
+                $currentUserId,
+                $linkedHouseholdId,
+                $sharedViewEnabled
+            ): void {
+                $query->where(function ($currentHouseholdQuery) use ($currentHouseholdId, $currentUserId): void {
+                    $currentHouseholdQuery
+                        ->where('household_id', $currentHouseholdId)
+                        ->where(function ($audienceQuery) use ($currentHouseholdId, $currentUserId): void {
+                            $audienceQuery
+                                ->where(function ($allMembersQuery): void {
+                                    $allMembersQuery
+                                        ->where('audience_mode', Event::AUDIENCE_ALL_MEMBERS)
+                                        ->orWhereNull('audience_mode');
+                                })
+                                ->orWhereHas('invitations', function ($invitationQuery) use ($currentHouseholdId, $currentUserId): void {
+                                    $invitationQuery
+                                        ->where('household_id', $currentHouseholdId)
+                                        ->where('user_id', $currentUserId);
+                                });
+                        });
+                });
                 if ($linkedHouseholdId !== null && $sharedViewEnabled) {
                     $query->orWhere(function ($linkedQuery) use ($linkedHouseholdId): void {
                         $linkedQuery->where('household_id', $linkedHouseholdId)
@@ -61,6 +82,10 @@ class GetCalendarBoardQuery
                 'creator:id,name',
                 'participations' => function ($query) use ($currentHouseholdId): void {
                     $query->where('household_id', $currentHouseholdId)->with('user:id,name');
+                },
+                'invitations' => function ($query) use ($currentHouseholdId): void {
+                    $query->where('household_id', $currentHouseholdId)
+                        ->select(['id', 'event_id', 'household_id', 'user_id']);
                 },
             ])
             ->orderBy('start_at')

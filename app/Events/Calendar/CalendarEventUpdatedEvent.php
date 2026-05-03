@@ -19,6 +19,10 @@ class CalendarEventUpdatedEvent
         public readonly ?int $linkedHouseholdId,
         public readonly bool $wasSharedWithOtherHousehold,
         public readonly bool $isSharedWithOtherHousehold,
+        /** @var array<int, int> */
+        public readonly array $previousAudienceUserIds,
+        /** @var array<int, int> */
+        public readonly array $currentAudienceUserIds,
     ) {
     }
 }

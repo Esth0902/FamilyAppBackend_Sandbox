@@ -4,6 +4,7 @@ namespace App\Listeners\Calendar;
 
 use App\Events\Calendar\EventParticipationConfirmedEvent;
 use App\Listeners\Calendar\Concerns\InteractsWithCalendarAudience;
+use App\Models\Event;
 use App\Services\NotificationService;
 use App\Services\RealtimePublisher;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -22,17 +23,21 @@ class HandleEventParticipationConfirmedEffects implements ShouldQueue
     {
         $participation = $event->participation;
         $calendarEvent = $event->event;
+        $audienceMode = Event::normalizeAudienceMode((string) $calendarEvent->audience_mode);
+        $audienceUserIds = $this->resolveEventAudienceUserIds($calendarEvent, $event->householdId);
+
         $parentIds = $this->resolveParentUserIds($event->householdId, $event->actorUserId);
-        if (!empty($parentIds)) {
+        $recipientParentIds = $this->intersectUserIds($parentIds, $audienceUserIds);
+        if (!empty($recipientParentIds)) {
             $status = (string) $participation->status;
             $statusLabel = $status === 'participate' ? 'participe' : 'ne participe pas';
             $this->notificationService->notifyUsers(
-                userIds: $parentIds,
+                userIds: $recipientParentIds,
                 householdId: $event->householdId,
                 type: 'calendar_event_participation_updated',
-                title: 'Participation événement mise à jour',
+                title: 'Participation evenement mise a jour',
                 body: sprintf(
-                    '%s a indiqué qu’il %s à l’événement "%s".',
+                    '%s a indique qu il %s a l evenement "%s".',
                     $event->actorName,
                     $statusLabel,
                     (string) $calendarEvent->title,
@@ -48,16 +53,30 @@ class HandleEventParticipationConfirmedEffects implements ShouldQueue
             );
         }
 
-        $this->realtimePublisher->publishHousehold(
-            householdId: $event->householdId,
-            module: 'calendar',
-            type: 'event.participation.updated',
-            payload: [
-                'event_id' => (int) $calendarEvent->id,
-                'user_id' => $event->actorUserId,
-                'status' => (string) $participation->status,
-                'household_id' => $event->householdId,
-            ],
-        );
+        $payload = [
+            'event_id' => (int) $calendarEvent->id,
+            'user_id' => $event->actorUserId,
+            'status' => (string) $participation->status,
+            'household_id' => $event->householdId,
+        ];
+
+        if ($audienceMode === Event::AUDIENCE_ALL_MEMBERS) {
+            $this->realtimePublisher->publishHousehold(
+                householdId: $event->householdId,
+                module: 'calendar',
+                type: 'event.participation.updated',
+                payload: $payload,
+            );
+        } else {
+            foreach ($audienceUserIds as $userId) {
+                $this->realtimePublisher->publishUser(
+                    userId: $userId,
+                    module: 'calendar',
+                    type: 'event.participation.updated',
+                    payload: $payload + ['user_id' => $userId],
+                );
+            }
+        }
     }
 }
+

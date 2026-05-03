@@ -4,6 +4,7 @@ namespace App\Listeners\Calendar;
 
 use App\Events\Calendar\CalendarEventDeletedEvent;
 use App\Listeners\Calendar\Concerns\InteractsWithCalendarAudience;
+use App\Models\Event;
 use App\Services\NotificationService;
 use App\Services\RealtimePublisher;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -20,14 +21,18 @@ class HandleCalendarEventDeletedEffects implements ShouldQueue
 
     public function handle(CalendarEventDeletedEvent $event): void
     {
-        $memberIds = $this->resolveHouseholdMemberIds($event->householdId, $event->actorUserId);
+        $audienceUserIds = array_values(array_unique($event->audienceUserIds));
+        $memberIds = array_values(array_filter(
+            $audienceUserIds,
+            static fn (int $id): bool => $id !== $event->actorUserId
+        ));
         if (!empty($memberIds)) {
             $this->notificationService->notifyUsers(
                 userIds: $memberIds,
                 householdId: $event->householdId,
                 type: 'calendar_event_deleted',
-                title: 'Événement supprimé',
-                body: sprintf('L\'événement "%s" a été supprimé du calendrier.', $event->eventTitle),
+                title: 'Evenement supprime',
+                body: sprintf('L evenement "%s" a ete supprime du calendrier.', $event->eventTitle),
                 data: [
                     'event_id' => $event->eventId,
                     'event_title' => $event->eventTitle,
@@ -44,12 +49,23 @@ class HandleCalendarEventDeletedEffects implements ShouldQueue
             'household_id' => $event->householdId,
         ];
 
-        $this->realtimePublisher->publishHousehold(
-            householdId: $event->householdId,
-            module: 'calendar',
-            type: 'event.deleted',
-            payload: $payload,
-        );
+        if ($event->audienceMode === Event::AUDIENCE_ALL_MEMBERS) {
+            $this->realtimePublisher->publishHousehold(
+                householdId: $event->householdId,
+                module: 'calendar',
+                type: 'event.deleted',
+                payload: $payload,
+            );
+        } else {
+            foreach ($audienceUserIds as $userId) {
+                $this->realtimePublisher->publishUser(
+                    userId: $userId,
+                    module: 'calendar',
+                    type: 'event.deleted',
+                    payload: $payload + ['user_id' => $userId],
+                );
+            }
+        }
 
         if ($event->wasSharedWithOtherHousehold && $event->linkedHouseholdId !== null) {
             $this->realtimePublisher->publishHousehold(
@@ -61,3 +77,4 @@ class HandleCalendarEventDeletedEffects implements ShouldQueue
         }
     }
 }
+

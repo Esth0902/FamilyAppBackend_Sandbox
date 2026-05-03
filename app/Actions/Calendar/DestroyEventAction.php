@@ -18,6 +18,21 @@ class DestroyEventAction
         $eventTitle = (string) $event->title;
         $wasSharedWithOtherHousehold = (bool) $event->is_shared_with_other_household;
         $linkedHouseholdId = $wasSharedWithOtherHousehold ? $this->resolveConnectedHouseholdId($household) : null;
+        $audienceMode = Event::normalizeAudienceMode((string) $event->audience_mode);
+        $audienceUserIds = $audienceMode === Event::AUDIENCE_ALL_MEMBERS
+            ? $household->users()
+                ->pluck('users.id')
+                ->map(static fn (mixed $id): int => (int) $id)
+                ->filter(static fn (int $id): bool => $id > 0)
+                ->values()
+                ->all()
+            : $event->invitations()
+                ->where('household_id', (int) $household->id)
+                ->pluck('user_id')
+                ->map(static fn (mixed $id): int => (int) $id)
+                ->filter(static fn (int $id): bool => $id > 0)
+                ->values()
+                ->all();
 
         $event->delete();
 
@@ -29,6 +44,8 @@ class DestroyEventAction
             actorName: (string) ($actor->name ?? 'Un membre'),
             wasSharedWithOtherHousehold: $wasSharedWithOtherHousehold,
             linkedHouseholdId: $linkedHouseholdId,
+            audienceMode: $audienceMode,
+            audienceUserIds: $audienceUserIds,
         ));
     }
 }

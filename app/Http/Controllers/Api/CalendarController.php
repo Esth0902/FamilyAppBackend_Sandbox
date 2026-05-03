@@ -25,7 +25,9 @@ use App\Http\Resources\Calendar\EventResource;
 use App\Http\Resources\Calendar\MealPlanAttendanceResource;
 use App\Http\Resources\Calendar\MealPlanResource;
 use App\Models\Event;
+use App\Models\Household;
 use App\Models\MealPlan;
+use App\Models\User;
 use App\Queries\Calendar\GetCalendarBoardQuery;
 use Illuminate\Http\JsonResponse;
 
@@ -39,48 +41,117 @@ class CalendarController extends Controller
     public function storeEvent(StoreEventRequest $request, StoreEventAction $action): JsonResponse
     {
         $event = $action->execute($request->household(), $request->user(), $request->validated());
-        return EventResource::mutation($event, (int) $request->user()->id, $request->householdRole(), (int) $request->household()->id, [], 'Evenement cree.')->response()->setStatusCode(201);
+
+        return EventResource::mutation(
+            $event,
+            (int) $request->user()->id,
+            $request->householdRole(),
+            (int) $request->household()->id,
+            $this->resolveHouseholdMembers($request->household()),
+            'Evenement cree.'
+        )->response()->setStatusCode(201);
     }
 
     public function updateEvent(UpdateEventRequest $request, Event $event, UpdateEventAction $action): JsonResponse
     {
         $event = $action->execute($request->household(), $request->user(), $event, $request->validated());
-        return EventResource::mutation($event, (int) $request->user()->id, $request->householdRole(), (int) $request->household()->id, [], 'Evenement mis a jour.')->response();
+
+        return EventResource::mutation(
+            $event,
+            (int) $request->user()->id,
+            $request->householdRole(),
+            (int) $request->household()->id,
+            $this->resolveHouseholdMembers($request->household()),
+            'Evenement mis a jour.'
+        )->response();
     }
 
     public function destroyEvent(DestroyEventRequest $request, Event $event, DestroyEventAction $action): JsonResponse
     {
         $action->execute($request->household(), $request->user(), $event);
-        return EventResource::deleted('Événement supprimé.')->response();
+
+        return EventResource::deleted('Evenement supprime.')->response();
     }
 
     public function storeMealPlan(StoreMealPlanRequest $request, StoreMealPlanAction $action): JsonResponse
     {
-        $mealPlan = $action->execute($request->household(), $request->user(), $request->validated(), $request->mealPlanUpdatePayload(), $request->recipeId(), $request->servings());
-        return MealPlanResource::mutation($mealPlan, (int) $request->user()->id, [], $mealPlan->wasRecentlyCreated ? 'Meal plan cree.' : 'Meal plan mis a jour.')->response()->setStatusCode($mealPlan->wasRecentlyCreated ? 201 : 200);
+        $mealPlan = $action->execute(
+            $request->household(),
+            $request->user(),
+            $request->validated(),
+            $request->mealPlanUpdatePayload(),
+            $request->recipeId(),
+            $request->servings()
+        );
+
+        return MealPlanResource::mutation(
+            $mealPlan,
+            (int) $request->user()->id,
+            [],
+            $mealPlan->wasRecentlyCreated ? 'Meal plan cree.' : 'Meal plan mis a jour.'
+        )->response()->setStatusCode($mealPlan->wasRecentlyCreated ? 201 : 200);
     }
 
     public function updateMealPlan(StoreMealPlanRequest $request, MealPlan $mealPlan, UpdateMealPlanAction $action): JsonResponse
     {
-        $mealPlan = $action->execute($request->household(), $request->user(), $mealPlan, $request->mealPlanUpdatePayload(), $request->recipeId(), $request->servings());
+        $mealPlan = $action->execute(
+            $request->household(),
+            $request->user(),
+            $mealPlan,
+            $request->mealPlanUpdatePayload(),
+            $request->recipeId(),
+            $request->servings()
+        );
+
         return MealPlanResource::mutation($mealPlan, (int) $request->user()->id, [], 'Meal plan mis a jour.')->response();
     }
 
     public function destroyMealPlan(DestroyMealPlanRequest $request, MealPlan $mealPlan, DestroyMealPlanAction $action): JsonResponse
     {
         $action->execute($request->household(), $request->user(), $mealPlan);
-        return MealPlanResource::deleted('Meal plan supprimé.')->response();
+
+        return MealPlanResource::deleted('Meal plan supprime.')->response();
     }
 
-    public function confirmMealPlanAttendance(ConfirmMealPlanAttendanceRequest $request, MealPlan $mealPlan, ConfirmMealPlanAttendanceAction $action): JsonResponse
-    {
+    public function confirmMealPlanAttendance(
+        ConfirmMealPlanAttendanceRequest $request,
+        MealPlan $mealPlan,
+        ConfirmMealPlanAttendanceAction $action
+    ): JsonResponse {
         $attendance = $action->execute($request->household(), $request->user(), $mealPlan, $request->validated());
-        return MealPlanAttendanceResource::mutation($attendance, 'Présence au repas enregistrée.')->response()->setStatusCode(200);
+
+        return MealPlanAttendanceResource::mutation($attendance, 'Presence au repas enregistree.')
+            ->response()
+            ->setStatusCode(200);
     }
 
-    public function confirmEventParticipation(ConfirmEventParticipationRequest $request, Event $event, ConfirmEventParticipationAction $action): JsonResponse
-    {
+    public function confirmEventParticipation(
+        ConfirmEventParticipationRequest $request,
+        Event $event,
+        ConfirmEventParticipationAction $action
+    ): JsonResponse {
         $participation = $action->execute($request->household(), $request->user(), $event, $request->validated());
-        return EventParticipationResource::mutation($participation, 'Participation à l\'événement enregistrée.')->response()->setStatusCode(200);
+
+        return EventParticipationResource::mutation($participation, 'Participation a l evenement enregistree.')
+            ->response()
+            ->setStatusCode(200);
+    }
+
+    /**
+     * @return array<int, array{id:int,name:string}>
+     */
+    private function resolveHouseholdMembers(Household $household): array
+    {
+        return $household->users()
+            ->select(['users.id', 'users.name'])
+            ->orderBy('users.name')
+            ->get()
+            ->map(static fn (User $member): array => [
+                'id' => (int) $member->id,
+                'name' => (string) ($member->name ?? 'Membre'),
+            ])
+            ->values()
+            ->all();
     }
 }
+

@@ -4,6 +4,7 @@ namespace App\Http\Requests\Calendar;
 
 use App\Models\Event;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Validation\Validator;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 class ConfirmEventParticipationRequest extends CalendarContextRequest
@@ -24,6 +25,10 @@ class ConfirmEventParticipationRequest extends CalendarContextRequest
             throw new NotFoundHttpException('Événement introuvable.');
         }
 
+        if (!$this->isCurrentUserInvitedToEvent($event)) {
+            throw new NotFoundHttpException('Événement introuvable.');
+        }
+
         return true;
     }
 
@@ -37,4 +42,41 @@ class ConfirmEventParticipationRequest extends CalendarContextRequest
             'reason' => ['nullable', 'string', 'max:255'],
         ];
     }
+
+    public function withValidator(Validator $validator): void
+    {
+        $validator->after(function (Validator $validator): void {
+            if ($validator->errors()->isNotEmpty()) {
+                return;
+            }
+
+            $event = $this->route('event');
+            if (!$event instanceof Event) {
+                return;
+            }
+
+            if ((bool) ($event->response_required ?? true)) {
+                return;
+            }
+
+            $validator->errors()->add(
+                'status',
+                'Cet événement est en mode information. Aucune réponse n est attendue.'
+            );
+        });
+    }
+
+    private function isCurrentUserInvitedToEvent(Event $event): bool
+    {
+        $audienceMode = Event::normalizeAudienceMode((string) $event->audience_mode);
+        if ($audienceMode === Event::AUDIENCE_ALL_MEMBERS) {
+            return true;
+        }
+
+        return $event->invitations()
+            ->where('household_id', (int) $this->household()->id)
+            ->where('user_id', (int) $this->user()->id)
+            ->exists();
+    }
 }
+

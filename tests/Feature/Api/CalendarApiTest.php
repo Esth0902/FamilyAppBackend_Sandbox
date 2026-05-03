@@ -806,6 +806,120 @@ class CalendarApiTest extends TestCase
         ])->assertNotFound();
     }
 
+    public function test_selected_member_event_is_visible_only_to_invited_members(): void
+    {
+        [$parent, $household] = $this->createHouseholdMember(User::ROLE_PARENT);
+        $childA = User::factory()->create(['must_change_password' => false]);
+        $childB = User::factory()->create(['must_change_password' => false]);
+        $household->users()->attach($childA->id, ['role' => User::ROLE_CHILD]);
+        $household->users()->attach($childB->id, ['role' => User::ROLE_CHILD]);
+
+        HouseholdSetting::query()->create([
+            'household_id' => $household->id,
+            'has_calendar' => true,
+        ]);
+
+        Sanctum::actingAs($parent);
+
+        $createResponse = $this->postJson('/api/calendar/events', [
+            'title' => 'Rendez-vous scolaire',
+            'start_at' => '2026-04-05T17:00:00',
+            'end_at' => '2026-04-05T18:00:00',
+            'audience_mode' => 'selected_members',
+            'invited_user_ids' => [$childA->id],
+            'response_required' => true,
+            'is_shared_with_other_household' => false,
+        ])->assertCreated();
+
+        $eventId = (int) ($createResponse->json('event.id') ?? 0);
+        $this->assertGreaterThan(0, $eventId);
+
+        $this->assertDatabaseHas('event_invitations', [
+            'event_id' => $eventId,
+            'household_id' => $household->id,
+            'user_id' => $childA->id,
+        ]);
+        $this->assertDatabaseMissing('event_invitations', [
+            'event_id' => $eventId,
+            'household_id' => $household->id,
+            'user_id' => $childB->id,
+        ]);
+
+        $this->assertDatabaseHas('user_notifications', [
+            'user_id' => $childA->id,
+            'household_id' => $household->id,
+            'type' => 'calendar_event_added',
+        ]);
+        $this->assertDatabaseMissing('user_notifications', [
+            'user_id' => $childB->id,
+            'household_id' => $household->id,
+            'type' => 'calendar_event_added',
+        ]);
+
+        Sanctum::actingAs($childA);
+        $childAResponse = $this->getJson('/api/calendar/board?from=2026-04-01&to=2026-04-10')->assertOk();
+        $childAEvents = collect($childAResponse->json('events') ?? []);
+        $this->assertTrue(
+            $childAEvents->contains(fn (array $item): bool => (int) ($item['id'] ?? 0) === $eventId)
+        );
+
+        Sanctum::actingAs($childB);
+        $childBResponse = $this->getJson('/api/calendar/board?from=2026-04-01&to=2026-04-10')->assertOk();
+        $childBEvents = collect($childBResponse->json('events') ?? []);
+        $this->assertFalse(
+            $childBEvents->contains(fn (array $item): bool => (int) ($item['id'] ?? 0) === $eventId)
+        );
+    }
+
+    public function test_only_me_event_is_hidden_from_other_members_and_cannot_be_answered_when_info_only(): void
+    {
+        [$parent, $household] = $this->createHouseholdMember(User::ROLE_PARENT);
+        $child = User::factory()->create(['must_change_password' => false]);
+        $household->users()->attach($child->id, ['role' => User::ROLE_CHILD]);
+
+        HouseholdSetting::query()->create([
+            'household_id' => $household->id,
+            'has_calendar' => true,
+        ]);
+
+        Sanctum::actingAs($child);
+        $createResponse = $this->postJson('/api/calendar/events', [
+            'title' => 'Sport perso',
+            'start_at' => '2026-04-06T19:00:00',
+            'end_at' => '2026-04-06T20:00:00',
+            'audience_mode' => 'only_me',
+            'response_required' => false,
+            'is_shared_with_other_household' => false,
+        ])->assertCreated();
+
+        $eventId = (int) ($createResponse->json('event.id') ?? 0);
+        $this->assertGreaterThan(0, $eventId);
+        $createResponse->assertJsonPath('event.audience_mode', 'only_me');
+        $createResponse->assertJsonPath('event.response_required', false);
+        $createResponse->assertJsonPath('event.permissions.can_confirm_participation', false);
+
+        $this->assertDatabaseHas('event_invitations', [
+            'event_id' => $eventId,
+            'household_id' => $household->id,
+            'user_id' => $child->id,
+        ]);
+
+        $this->postJson("/api/calendar/events/{$eventId}/participation", [
+            'status' => 'participate',
+        ])->assertStatus(422);
+
+        Sanctum::actingAs($parent);
+        $parentBoard = $this->getJson('/api/calendar/board?from=2026-04-01&to=2026-04-10')->assertOk();
+        $parentEvents = collect($parentBoard->json('events') ?? []);
+        $this->assertFalse(
+            $parentEvents->contains(fn (array $item): bool => (int) ($item['id'] ?? 0) === $eventId)
+        );
+
+        $this->postJson("/api/calendar/events/{$eventId}/participation", [
+            'status' => 'participate',
+        ])->assertNotFound();
+    }
+
     private function createHouseholdMember(string $role): array
     {
         $user = User::factory()->create([

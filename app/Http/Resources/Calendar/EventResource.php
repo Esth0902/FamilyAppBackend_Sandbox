@@ -3,6 +3,7 @@
 namespace App\Http\Resources\Calendar;
 
 use App\Models\Event;
+use App\Models\EventInvitation;
 use App\Models\EventParticipation;
 use App\Models\User;
 use Illuminate\Http\Request;
@@ -76,12 +77,34 @@ class EventResource extends JsonResource
                 $this->role === User::ROLE_PARENT
                 || (int) $this->created_by_user_id === $this->currentUserId
             );
+
+        $audienceMode = Event::normalizeAudienceMode((string) $this->audience_mode);
+        $responseRequired = (bool) ($this->response_required ?? true);
+
+        $audienceUserIds = $this->resolveAudienceUserIds($audienceMode);
+        $isInvited = $belongsToCurrentHousehold
+            && (
+                $audienceMode === Event::AUDIENCE_ALL_MEMBERS
+                || in_array($this->currentUserId, $audienceUserIds, true)
+            );
+
         $participations = $this->relationLoaded('participations')
             ? $this->participations
             : collect();
-        $myParticipation = $participations->first(
+        $visibleParticipations = $participations->filter(
+            static fn (EventParticipation $participation): bool => in_array((int) $participation->user_id, $audienceUserIds, true)
+        );
+        $myParticipation = $visibleParticipations->first(
             fn (EventParticipation $participation): bool => (int) $participation->user_id === $this->currentUserId
         );
+        if (!$responseRequired || !$isInvited) {
+            $myParticipation = null;
+        }
+
+        $invitedMembers = collect($this->householdMembers)
+            ->filter(static fn (array $member): bool => in_array((int) ($member['id'] ?? 0), $audienceUserIds, true))
+            ->values()
+            ->all();
 
         $payload = [
             'id' => (int) $this->id,
@@ -91,6 +114,9 @@ class EventResource extends JsonResource
             'end_at' => optional($this->end_at)->toIso8601String(),
             'is_shared_with_other_household' => (bool) $this->is_shared_with_other_household,
             'source_household_id' => (int) $this->household_id,
+            'audience_mode' => $audienceMode,
+            'response_required' => $responseRequired,
+            'invited_user_ids' => $belongsToCurrentHousehold ? array_values($audienceUserIds) : [],
             'created_by' => [
                 'id' => $this->creator?->id ? (int) $this->creator->id : null,
                 'name' => $this->creator?->name,
@@ -98,11 +124,18 @@ class EventResource extends JsonResource
             'my_participation' => $myParticipation instanceof EventParticipation
                 ? EventParticipationResource::make($myParticipation)->resolve($request)
                 : null,
-            'participation_overview' => EventParticipationResource::overview($participations, $this->householdMembers),
+            'participation_overview' => $responseRequired
+                ? EventParticipationResource::overview($visibleParticipations, $invitedMembers)
+                : null,
+            'invitation' => [
+                'audience_mode' => $audienceMode,
+                'response_required' => $responseRequired,
+                'is_invited' => $isInvited,
+            ],
             'permissions' => [
                 'can_update' => $canManage,
                 'can_delete' => $canManage,
-                'can_confirm_participation' => $belongsToCurrentHousehold,
+                'can_confirm_participation' => $belongsToCurrentHousehold && $isInvited && $responseRequired,
             ],
         ];
 
@@ -114,5 +147,29 @@ class EventResource extends JsonResource
         }
 
         return $payload;
+    }
+
+    /**
+     * @return array<int, int>
+     */
+    private function resolveAudienceUserIds(string $audienceMode): array
+    {
+        if ($audienceMode === Event::AUDIENCE_ALL_MEMBERS) {
+            return collect($this->householdMembers)
+                ->map(static fn (array $member): int => (int) ($member['id'] ?? 0))
+                ->filter(static fn (int $id): bool => $id > 0)
+                ->values()
+                ->all();
+        }
+
+        $invitations = $this->relationLoaded('invitations')
+            ? $this->invitations
+            : collect();
+
+        return $invitations
+            ->map(static fn (EventInvitation $invitation): int => (int) $invitation->user_id)
+            ->filter(static fn (int $id): bool => $id > 0)
+            ->values()
+            ->all();
     }
 }

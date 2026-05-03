@@ -18,6 +18,9 @@ class CalendarEventDeletedEvent
         public readonly string $actorName,
         public readonly bool $wasSharedWithOtherHousehold,
         public readonly ?int $linkedHouseholdId,
+        public readonly string $audienceMode,
+        /** @var array<int, int> */
+        public readonly array $audienceUserIds,
     ) {
     }
 }

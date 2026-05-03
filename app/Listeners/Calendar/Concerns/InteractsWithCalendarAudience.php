@@ -2,6 +2,7 @@
 
 namespace App\Listeners\Calendar\Concerns;
 
+use App\Models\Event;
 use App\Models\Household;
 use App\Models\User;
 
@@ -42,6 +43,40 @@ trait InteractsWithCalendarAudience
             ->filter(static fn (int $id): bool => $id > 0 && ($excludeUserId === null || $id !== $excludeUserId))
             ->values()
             ->all();
+    }
+
+    /**
+     * @return array<int, int>
+     */
+    protected function resolveEventAudienceUserIds(Event $event, int $householdId): array
+    {
+        $audienceMode = Event::normalizeAudienceMode((string) $event->audience_mode);
+        if ($audienceMode === Event::AUDIENCE_ALL_MEMBERS) {
+            return $this->resolveHouseholdMemberIds($householdId);
+        }
+
+        return $event->invitations()
+            ->where('household_id', $householdId)
+            ->pluck('user_id')
+            ->map(static fn (mixed $id): int => (int) $id)
+            ->filter(static fn (int $id): bool => $id > 0)
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @param array<int, int> $left
+     * @param array<int, int> $right
+     * @return array<int, int>
+     */
+    protected function intersectUserIds(array $left, array $right): array
+    {
+        $rightLookup = array_fill_keys($right, true);
+
+        return array_values(array_filter(
+            $left,
+            static fn (int $id): bool => isset($rightLookup[$id])
+        ));
     }
 
     protected function mealTypeLabel(string $mealType): string
