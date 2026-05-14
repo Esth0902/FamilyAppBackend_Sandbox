@@ -41,95 +41,161 @@ class BudgetNotificationScheduler
                     }
 
                     $paymentTime = $this->resolvePaymentTime($household);
-                    if ($paymentTime === null) {
-                        continue;
-                    }
-
-                    $dueAt = $this->resolveDueDateTime($setting, $now, $paymentTime);
-                    if (!$dueAt) {
-                        continue;
-                    }
-                    if ($dueAt->lt($windowStart) || $dueAt->gt($now)) {
-                        continue;
-                    }
-
-                    [$remainingRaw, $periodStart, $periodEnd] = $this->computeCurrentPeriodRemainingRaw($setting, $dueAt);
-                    if (abs($remainingRaw) < 0.01) {
-                        continue;
-                    }
-
-                    $parentIds = $this->resolveParentUserIds($household);
-                    if ($parentIds->isEmpty()) {
-                        continue;
-                    }
-
-                    $isNegative = $remainingRaw < 0;
-                    $type = $isNegative ? 'budget_negative_due' : 'budget_payment_due';
-                    $amount = abs($remainingRaw);
-                    $childName = (string) ($setting->user?->name ?? 'Un enfant');
-                    $title = $isNegative
-                        ? 'Report budget à confirmer'
-                        : 'Paiement budget à valider';
-                    $body = $isNegative
-                        ? sprintf(
-                            '%s : solde négatif de %0.2f € à reporter au prochain budget.',
-                            $childName,
-                            $amount
-                        )
-                        : sprintf(
-                            '%s : %0.2f € à valider pour la période %s → %s.',
-                            $childName,
-                            $amount,
-                            $periodStart->toDateString(),
-                            $periodEnd->toDateString()
-                        );
-
-                    foreach ($parentIds as $parentId) {
-                        $alreadySent = UserNotification::query()
-                            ->where('household_id', (int) $household->id)
-                            ->where('user_id', (int) $parentId)
-                            ->where('type', $type)
-                            ->where('data->child_user_id', (int) $setting->user_id)
-                            ->where('data->period_start', $periodStart->toDateString())
-                            ->where('data->period_end', $periodEnd->toDateString())
-                            ->exists();
-
-                        if ($alreadySent) {
-                            continue;
+                    if ($paymentTime !== null) {
+                        $resetAt = $this->resolveDueDateTime($setting, $now, $paymentTime);
+                        if ($this->isWithinWindow($resetAt, $windowStart, $now)) {
+                            [$remainingRaw, $periodStart, $periodEnd] = $this->computeCurrentPeriodRemainingRaw($setting, $resetAt);
+                            if ($remainingRaw < -0.01) {
+                                $this->dispatchDueNotification(
+                                    household: $household,
+                                    setting: $setting,
+                                    type: 'budget_negative_due',
+                                    title: 'Report budget à confirmer',
+                                    bodyTemplate: '%s : solde négatif de %0.2f € à reporter au prochain budget.',
+                                    amount: abs($remainingRaw),
+                                    remainingRaw: $remainingRaw,
+                                    periodStart: $periodStart,
+                                    periodEnd: $periodEnd,
+                                );
+                            }
                         }
-
-                        $notification = UserNotification::query()->create([
-                            'household_id' => (int) $household->id,
-                            'user_id' => (int) $parentId,
-                            'type' => $type,
-                            'title' => $title,
-                            'body' => $body,
-                            'data' => [
-                                'household_id' => (int) $household->id,
-                                'child_user_id' => (int) $setting->user_id,
-                                'child_name' => $childName,
-                                'amount' => $amount,
-                                'remaining_raw' => $remainingRaw,
-                                'period_start' => $periodStart->toDateString(),
-                                'period_end' => $periodEnd->toDateString(),
-                            ],
-                        ]);
-
-                        $this->realtimePublisher->publishUser(
-                            userId: (int) $parentId,
-                            module: 'notifications',
-                            type: 'notification_created',
-                            payload: [
-                                'notification_id' => (int) $notification->id,
-                                'household_id' => (int) $household->id,
-                                'type' => $type,
-                                'title' => $title,
-                                'body' => $body,
-                            ],
-                        );
                     }
+
+                    $paymentReminderAt = $this->resolvePaymentReminderDateTime($setting, $now);
+                    if (!$this->isWithinWindow($paymentReminderAt, $windowStart, $now)) {
+                        continue;
+                    }
+
+                    [$remainingRaw, $periodStart, $periodEnd] = $this->computeCurrentPeriodRemainingRaw($setting, $paymentReminderAt);
+                    if ($remainingRaw <= 0.01) {
+                        continue;
+                    }
+
+                    $this->dispatchDueNotification(
+                        household: $household,
+                        setting: $setting,
+                        type: 'budget_payment_due',
+                        title: 'Paiement budget à valider',
+                        bodyTemplate: '%s : %0.2f € à valider pour la période %s → %s.',
+                        amount: abs($remainingRaw),
+                        remainingRaw: $remainingRaw,
+                        periodStart: $periodStart,
+                        periodEnd: $periodEnd,
+                    );
                 }
             });
+    }
+
+    private function isWithinWindow(?Carbon $candidate, Carbon $windowStart, Carbon $now): bool
+    {
+        return $candidate instanceof Carbon
+            && !$candidate->lt($windowStart)
+            && !$candidate->gt($now);
+    }
+
+    private function resolvePaymentReminderDateTime(BudgetSetting $setting, Carbon $now): ?Carbon
+    {
+        $recurrence = (string) ($setting->recurrence ?? 'weekly');
+        $resetDay = (int) $setting->reset_day;
+
+        if ($recurrence === 'monthly') {
+            $safeDay = max(1, min(31, $resetDay));
+            $effectiveResetDay = min($safeDay, (int) $now->daysInMonth);
+            $reminderDay = $effectiveResetDay === 1
+                ? (int) $now->daysInMonth
+                : ($effectiveResetDay - 1);
+
+            if ((int) $now->day !== $reminderDay) {
+                return null;
+            }
+
+            return $now->copy()->setTime(9, 0, 0);
+        }
+
+        $safeWeekDay = max(1, min(7, $resetDay));
+        $reminderWeekDay = $safeWeekDay === 1 ? 7 : ($safeWeekDay - 1);
+        if ((int) $now->dayOfWeekIso !== $reminderWeekDay) {
+            return null;
+        }
+
+        return $now->copy()->setTime(9, 0, 0);
+    }
+
+    private function dispatchDueNotification(
+        Household $household,
+        BudgetSetting $setting,
+        string $type,
+        string $title,
+        string $bodyTemplate,
+        float $amount,
+        float $remainingRaw,
+        Carbon $periodStart,
+        Carbon $periodEnd,
+    ): void {
+        $parentIds = $this->resolveParentUserIds($household);
+        if ($parentIds->isEmpty()) {
+            return;
+        }
+
+        $childName = (string) ($setting->user?->name ?? 'Un enfant');
+        $body = $type === 'budget_payment_due'
+            ? sprintf(
+                $bodyTemplate,
+                $childName,
+                $amount,
+                $periodStart->toDateString(),
+                $periodEnd->toDateString()
+            )
+            : sprintf(
+                $bodyTemplate,
+                $childName,
+                $amount
+            );
+
+        foreach ($parentIds as $parentId) {
+            $alreadySent = UserNotification::query()
+                ->where('household_id', (int) $household->id)
+                ->where('user_id', (int) $parentId)
+                ->where('type', $type)
+                ->where('data->child_user_id', (int) $setting->user_id)
+                ->where('data->period_start', $periodStart->toDateString())
+                ->where('data->period_end', $periodEnd->toDateString())
+                ->exists();
+
+            if ($alreadySent) {
+                continue;
+            }
+
+            $notification = UserNotification::query()->create([
+                'household_id' => (int) $household->id,
+                'user_id' => (int) $parentId,
+                'type' => $type,
+                'title' => $title,
+                'body' => $body,
+                'data' => [
+                    'household_id' => (int) $household->id,
+                    'child_user_id' => (int) $setting->user_id,
+                    'child_name' => $childName,
+                    'amount' => $amount,
+                    'remaining_raw' => $remainingRaw,
+                    'period_start' => $periodStart->toDateString(),
+                    'period_end' => $periodEnd->toDateString(),
+                ],
+            ]);
+
+            $this->realtimePublisher->publishUser(
+                userId: (int) $parentId,
+                module: 'notifications',
+                type: 'notification_created',
+                payload: [
+                    'notification_id' => (int) $notification->id,
+                    'household_id' => (int) $household->id,
+                    'type' => $type,
+                    'title' => $title,
+                    'body' => $body,
+                ],
+            );
+        }
     }
 
     private function resolveDueDateTime(BudgetSetting $setting, Carbon $now, string $paymentTime): ?Carbon
