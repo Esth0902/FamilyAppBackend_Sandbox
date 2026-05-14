@@ -73,10 +73,10 @@ class DietaryTagSeeder extends Seeder
         foreach ([
                      'Pas de champignons',
                      'Pas de coriandre',
-                     'Pas d’ail',
-                     'Pas d’oignons',
+                     'Pas d\'ail',
+                     'Pas d\'oignons',
                      'Pas de poivron',
-                     'Pas d’olives',
+                     'Pas d\'olives',
                      'Pas de fromage',
                      'Pas de poisson',
                      'Pas de fruits de mer',
