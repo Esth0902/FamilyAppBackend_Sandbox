@@ -68,7 +68,7 @@ class SyncMealPollVotesRequest extends MealPollContextRequest
 
             $maxVotes = max(1, (int) $poll->max_votes_per_user);
             if ($optionIds->count() !== $maxVotes) {
-                $validator->errors()->add('option_ids', "Vous devez choisir exactement {$maxVotes} plats pour ce sondage.");
+                $validator->errors()->add('option_ids', "Tu dois choisir exactement {$maxVotes} plats pour ce sondage.");
             }
         });
     }

@@ -25,7 +25,7 @@ class DestroyEventRequest extends CalendarContextRequest
         }
 
         if (!$this->canManageEvent($event, (int) $this->user()->id, $this->householdRole())) {
-            throw new AuthorizationException('Vous pouvez modifier uniquement vos événements.');
+            throw new AuthorizationException('Tu peux modifier uniquement tes événements.');
         }
 
         return true;

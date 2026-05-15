@@ -51,7 +51,7 @@ class SubmitHouseholdLinkAction
             $targetHouseholdId = (int) $code->household_id;
             if ($targetHouseholdId === $requesterHouseholdId) {
                 throw ValidationException::withMessages([
-                    'code' => ['Ce code appartient déjà à votre foyer.'],
+                    'code' => ['Ce code appartient déjà à ton foyer.'],
                 ]);
             }
 

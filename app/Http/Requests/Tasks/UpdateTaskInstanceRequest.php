@@ -38,7 +38,7 @@ class UpdateTaskInstanceRequest extends HouseholdAwareRequest
         }
 
         if (!$this->isUserAssignedToInstance($instance, (int) $this->user()->id)) {
-            throw new AuthorizationException('Vous pouvez modifier uniquement vos tâches.');
+            throw new AuthorizationException('tu peux modifier uniquement tes tâches.');
         }
 
         return true;

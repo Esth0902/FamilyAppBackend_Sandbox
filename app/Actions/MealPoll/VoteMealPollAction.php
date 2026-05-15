@@ -61,7 +61,7 @@ class VoteMealPollAction
 
             return [
                 'status' => 422,
-                'message' => 'Vous avez atteint le nombre maximum de votes pour ce sondage.',
+                'message' => 'Tu as atteint le nombre maximum de votes pour ce sondage.',
                 'voted' => false,
                 'poll' => $poll,
             ];

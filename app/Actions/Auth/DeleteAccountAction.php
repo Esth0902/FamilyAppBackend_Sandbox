@@ -38,7 +38,7 @@ class DeleteAccountAction
             return [
                 'status' => 422,
                 'payload' => [
-                    'message' => "Vous êtes le dernier parent d'au moins un foyer. Désignez un nouveau parent ou supprimez le foyer concerné avant de supprimer votre compte.",
+                    'message' => "Tu es le dernier parent d'au moins un foyer. Désigne un nouveau parent ou supprime le foyer concerné avant de supprimer ton compte.",
                     'required_action' => 'define_new_parent_or_delete_household',
                     'blocked_households' => $blockedHouseholds,
                 ],

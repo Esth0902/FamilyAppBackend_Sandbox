@@ -35,9 +35,9 @@ class HandleEventParticipationConfirmedEffects implements ShouldQueue
                 userIds: $recipientParentIds,
                 householdId: $event->householdId,
                 type: 'calendar_event_participation_updated',
-                title: 'Participation evenement mise a jour',
+                title: 'Participation événement mise à jour',
                 body: sprintf(
-                    '%s a indique qu il %s a l evenement "%s".',
+                    '%s %s à l\'évènement "%s".',
                     $event->actorName,
                     $statusLabel,
                     (string) $calendarEvent->title,

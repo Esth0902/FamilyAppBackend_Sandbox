@@ -76,7 +76,7 @@ class HouseholdController extends Controller
     public function leave(ParentHouseholdRequest $request)
     {
         $user = $this->leaveHouseholdAction->execute(household: $request->household(), member: $request->actorOrFail());
-        return response()->json(JsonUtf8Sanitizer::sanitize(['message' => 'Vous avez quitté ce foyer.', 'left_household_id' => (int) $request->household()->id, 'user' => $user]));
+        return response()->json(JsonUtf8Sanitizer::sanitize(['message' => 'Tu as quitté ce foyer.', 'left_household_id' => (int) $request->household()->id, 'user' => $user]));
     }
 
     public function dashboard(ShowHouseholdDashboardRequest $request)

@@ -28,7 +28,7 @@ class StoreEventRequest extends CalendarContextRequest
             }
 
             if (!$this->canManageEvent($event, (int) $this->user()->id, $this->householdRole())) {
-                throw new AuthorizationException('Vous pouvez modifier uniquement vos événements.');
+                throw new AuthorizationException('Tu peux modifier uniquement tes événements.');
             }
         }
 
@@ -76,7 +76,7 @@ class StoreEventRequest extends CalendarContextRequest
                 if (!$this->hasConnectedHousehold($this->household())) {
                     $validator->errors()->add(
                         'is_shared_with_other_household',
-                        'Aucun foyer connecté n est disponible pour le partage.'
+                        'Aucun foyer connecté n\'est disponible pour le partage.'
                     );
                 }
             }
@@ -103,14 +103,14 @@ class StoreEventRequest extends CalendarContextRequest
             ) {
                 $validator->errors()->add(
                     'invited_user_ids',
-                    'Le mode only_me ne peut contenir que votre identifiant.'
+                    'Le mode only_me ne peut contenir que ton identifiant.'
                 );
             }
 
             if ($audienceMode === Event::AUDIENCE_SELECTED_MEMBERS && count($invitedUserIds) === 0) {
                 $validator->errors()->add(
                     'invited_user_ids',
-                    'Sélectionnez au moins un membre du foyer pour ce mode d audience.'
+                    'Sélectionnez au moins un membre du foyer pour ce mode d\'audience.'
                 );
             }
 

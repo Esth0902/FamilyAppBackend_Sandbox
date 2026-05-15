@@ -22,7 +22,7 @@ class LeaveHouseholdAction
 
         if (!$this->hasOtherParent($household, (int) $member->id)) {
             throw new HttpResponseException(response()->json(JsonUtf8Sanitizer::sanitize([
-                'message' => 'Vous êtes le dernier parent de ce foyer. Désignez un nouveau parent ou supprimez ce foyer avant de le quitter.',
+                'message' => 'Tu es le dernier parent de ce foyer. Désigne un nouveau parent ou supprime ce foyer avant de le quitter.',
                 'required_action' => 'define_new_parent_or_delete_household',
                 'household' => [
                     'id' => (int) $household->id,

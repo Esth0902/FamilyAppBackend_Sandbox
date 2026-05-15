@@ -70,7 +70,7 @@ class UpdateMealPollRequest extends MealPollContextRequest
                 ->count();
 
             if ($ownedRecipeCount !== $recipeIds->count()) {
-                $validator->errors()->add('recipe_ids', 'Certaines recettes ne font pas partie de votre foyer.');
+                $validator->errors()->add('recipe_ids', 'Certaines recettes ne font pas partie de ton foyer.');
                 return;
             }
 

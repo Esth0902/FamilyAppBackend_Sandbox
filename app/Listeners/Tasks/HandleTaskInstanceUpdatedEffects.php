@@ -83,7 +83,7 @@ class HandleTaskInstanceUpdatedEffects implements ShouldQueue
                 householdId: $event->householdId,
                 type: 'task_reassigned',
                 title: 'Réattribution de tâche',
-                body: sprintf('La tâche "%s" vous a été réattribuée dans le foyer %s.', $taskTitle, $event->householdName),
+                body: sprintf('La tâche "%s" t\'a été réattribuée dans le foyer %s.', $taskTitle, $event->householdName),
                 data: $sharedPayload + [
                     'previous_assignee_ids' => $event->previousAssigneeIds,
                     'assignee_ids' => $event->currentAssigneeIds,

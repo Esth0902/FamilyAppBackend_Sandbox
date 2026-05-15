@@ -38,7 +38,7 @@ class HandleTaskInstanceCreatedEffects implements ShouldQueue
             householdId: $event->householdId,
             type: 'task_assigned',
             title: 'Nouvelle tâche assignée',
-            body: sprintf('La tâche "%s" vous a été assignée dans le foyer %s.', $taskTitle, $householdName),
+            body: sprintf('La tâche "%s" t\'a été assignée dans le foyer %s.', $taskTitle, $householdName),
             data: $notificationPayload,
         );
 

@@ -58,7 +58,7 @@ class RespondTaskReassignmentInviteAction
 
             if ((int) $user->id !== $invitedUserId) {
                 throw ValidationException::withMessages([
-                    'notification' => ['Cette demande ne vous est pas destinée.'],
+                    'notification' => ['Cette demande ne t\'est pas destinée.'],
                 ]);
             }
 

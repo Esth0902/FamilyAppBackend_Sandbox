@@ -30,7 +30,7 @@ class ConfirmEventParticipationAction
                 ->exists();
         if (!$isInvited) {
             throw ValidationException::withMessages([
-                'status' => ['Vous ne pouvez pas répondre à cet événement.'],
+                'status' => ['Tu ne peux pas répondre à cet événement.'],
             ]);
         }
 

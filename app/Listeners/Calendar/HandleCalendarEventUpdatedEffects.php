@@ -35,8 +35,8 @@ class HandleCalendarEventUpdatedEffects implements ShouldQueue
                 userIds: $currentRecipients,
                 householdId: $event->householdId,
                 type: 'calendar_event_updated',
-                title: 'Evenement modifie',
-                body: sprintf('L evenement "%s" a ete modifie.', (string) $calendarEvent->title),
+                title: 'Événement modifié',
+                body: sprintf('L\'événement "%s" a été modifié.', (string) $calendarEvent->title),
                 data: [
                     'event_id' => (int) $calendarEvent->id,
                     'event_title' => (string) $calendarEvent->title,
@@ -56,8 +56,8 @@ class HandleCalendarEventUpdatedEffects implements ShouldQueue
                 userIds: $removedRecipients,
                 householdId: $event->householdId,
                 type: 'calendar_event_deleted',
-                title: 'Evenement retire',
-                body: sprintf('L evenement "%s" n est plus visible dans votre calendrier.', (string) $calendarEvent->title),
+                title: 'Événement retiré',
+                body: sprintf('L\'événement "%s" n\'est plus visible dans ton calendrier.', (string) $calendarEvent->title),
                 data: [
                     'event_id' => (int) $calendarEvent->id,
                     'event_title' => (string) $calendarEvent->title,

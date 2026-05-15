@@ -254,7 +254,7 @@ class HouseholdMemberApiTest extends TestCase
             'user_id' => $parent->id,
             'type' => 'task_reassignment_invite_responded',
             'title' => 'Reprise de tâche acceptée',
-            'body' => 'Un membre a accepté votre demande.',
+            'body' => 'Un membre du foyer a accepté ta demande.',
             'data' => [
                 'household_id' => (int) $household->id,
                 'task_instance_id' => 123,

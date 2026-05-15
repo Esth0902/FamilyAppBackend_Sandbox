@@ -54,7 +54,7 @@ class SubmitLinkRequest extends HouseholdConnectionRequest
             }
 
             if ((int) $code->household_id === (int) $this->household()->id) {
-                $validator->errors()->add('code', 'Ce code appartient deja a votre foyer.');
+                $validator->errors()->add('code', 'Ce code appartient déjà à ton foyer.');
             }
         });
     }

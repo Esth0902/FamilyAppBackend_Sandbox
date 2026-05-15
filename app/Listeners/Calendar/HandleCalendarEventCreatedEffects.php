@@ -34,8 +34,8 @@ class HandleCalendarEventCreatedEffects implements ShouldQueue
                 userIds: $memberIds,
                 householdId: $event->householdId,
                 type: 'calendar_event_added',
-                title: 'Evenement ajoute',
-                body: sprintf('L evenement "%s" a ete ajoute au calendrier.', (string) $calendarEvent->title),
+                title: 'Événement ajouté',
+                body: sprintf('L\' événement "%s" a été ajouté au calendrier.', (string) $calendarEvent->title),
                 data: [
                     'event_id' => (int) $calendarEvent->id,
                     'event_title' => (string) $calendarEvent->title,

@@ -28,11 +28,11 @@ class HandleHouseholdLinkRespondedEffects implements ShouldQueue
                 title: $accepted ? 'Liaison de foyer acceptée' : 'Liaison de foyer refusée',
                 body: $accepted
                     ? sprintf(
-                        'Le foyer %s a accepté votre demande de liaison.',
+                        'Le foyer %s a accepté ta demande de liaison.',
                         $event->toHouseholdName
                     )
                     : sprintf(
-                        'Le foyer %s a refusé votre demande de liaison.',
+                        'Le foyer %s a refusé ta demande de liaison.',
                         $event->toHouseholdName
                     ),
                 data: [

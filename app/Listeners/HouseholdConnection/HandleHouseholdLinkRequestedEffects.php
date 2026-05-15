@@ -24,7 +24,7 @@ class HandleHouseholdLinkRequestedEffects implements ShouldQueue
                 type: 'household_link_request',
                 title: 'Demande de liaison de foyer',
                 body: sprintf(
-                    'Le foyer %s souhaite se connecter a votre foyer %s.',
+                    'Le foyer %s souhaite se connecter à ton foyer %s.',
                     $event->requesterHouseholdName,
                     $event->targetHouseholdName
                 ),

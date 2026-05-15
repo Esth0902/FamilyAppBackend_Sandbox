@@ -38,14 +38,14 @@ class DeleteHouseholdMemberRequest extends FormRequest
 
         if ((int) $user->id === (int) $member->id) {
             throw ValidationException::withMessages([
-                'member' => ['Vous ne pouvez pas vous supprimer vous-même du foyer.'],
+                'member' => ['Tu ne peux pas te supprimer toi-même du foyer.'],
             ]);
         }
 
         $memberRole = (string) ($memberInHousehold->pivot->role ?? User::ROLE_CHILD);
         if ($memberRole === User::ROLE_PARENT && !$this->hasOtherParent($household, (int) $member->id)) {
             throw ValidationException::withMessages([
-                'role' => ['Le foyer doit conserver au moins un parent. Désignez un nouveau parent ou supprimez le foyer.'],
+                'role' => ['Le foyer doit conserver au moins un parent. Désigne un nouveau parent ou supprime le foyer.'],
             ]);
         }
 

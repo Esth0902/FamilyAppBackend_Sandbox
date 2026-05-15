@@ -282,7 +282,7 @@ class HouseholdDeletionService
 
             if (!in_array($responderId, $requiredParentIds, true)) {
                 throw ValidationException::withMessages([
-                    'notification' => ['Vous n\'êtes pas concerné par cette demande.'],
+                    'notification' => ['tu n\'es pas concerné par cette demande.'],
                 ]);
             }
 
@@ -328,7 +328,7 @@ class HouseholdDeletionService
                         type: self::TYPE_REQUEST_REFUSED,
                         title: 'Suppression du foyer refusée',
                         body: sprintf(
-                            '%s a refusé la suppression du foyer %s. Vous pouvez quitter ce foyer si vous le souhaitez.',
+                            '%s a refusé la suppression du foyer %s. tu peux quitter ce foyer si tu le souhaites.',
                             (string) ($responder->name ?? 'Un parent'),
                             $householdName
                         ),
@@ -711,7 +711,7 @@ class HouseholdDeletionService
             $title = 'Suppression du foyer planifiée';
             $body = $isParent
                 ? sprintf(
-                    'Le foyer %s sera supprimé dans 24h. Vous pouvez encore annuler cette suppression.',
+                    'Le foyer %s sera supprimé dans 24h. Cette suppression peut encore être annulée.',
                     $householdName
                 )
                 : sprintf(

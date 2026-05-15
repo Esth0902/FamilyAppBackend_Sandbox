@@ -31,8 +31,8 @@ class HandleCalendarEventDeletedEffects implements ShouldQueue
                 userIds: $memberIds,
                 householdId: $event->householdId,
                 type: 'calendar_event_deleted',
-                title: 'Evenement supprime',
-                body: sprintf('L evenement "%s" a ete supprime du calendrier.', $event->eventTitle),
+                title: 'Événement supprimé',
+                body: sprintf('L\' événement "%s" a été supprimé du calendrier.', $event->eventTitle),
                 data: [
                     'event_id' => $event->eventId,
                     'event_title' => $event->eventTitle,

@@ -72,7 +72,7 @@ class RequestTaskReassignmentAction
                 'type' => 'task_reassignment_invite',
                 'title' => 'Demande de reprise de tâche',
                 'body' => sprintf(
-                    '%s vous demande de reprendre la tâche %s prévue le %s (foyer : %s).',
+                    '%s te demande de reprendre la tâche %s prévue le %s (foyer : %s).',
                     (string) ($currentUser->name ?? 'Un membre'),
                     $taskTitle,
                     optional($instance->due_date)->toDateString() ?? '',

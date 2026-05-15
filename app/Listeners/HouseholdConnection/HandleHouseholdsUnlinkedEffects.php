@@ -26,7 +26,7 @@ class HandleHouseholdsUnlinkedEffects implements ShouldQueue
                     type: 'household_link_disconnected',
                     title: 'Liaison de foyer rompue',
                     body: sprintf(
-                        'Le foyer %s a rompu la liaison avec votre foyer.',
+                        'Le foyer %s a rompu la liaison avec ton foyer.',
                         $event->sourceHouseholdName
                     ),
                     data: [

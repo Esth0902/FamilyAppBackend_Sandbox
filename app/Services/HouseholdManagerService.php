@@ -147,7 +147,7 @@ class HouseholdManagerService
             if ($existingUser) {
                 if ((int) $existingUser->id === (int) $inviter->id) {
                     throw ValidationException::withMessages([
-                        'email' => ['Vous ne pouvez pas vous inviter vous-même.'],
+                        'email' => ['Tu ne peux pas t\'inviter toi-même.'],
                     ]);
                 }
 
@@ -166,7 +166,7 @@ class HouseholdManagerService
                     'type' => 'household_invite',
                     'title' => 'Invitation de foyer',
                     'body' => sprintf(
-                        '%s vous invite a rejoindre le foyer %s.',
+                        '%s t\'invite a rejoindre le foyer %s.',
                         (string) ($inviter->name ?? 'Un parent'),
                         (string) $household->name
                     ),
@@ -761,7 +761,7 @@ return DB::transaction(function () use ($household, $householdUpdateData, $modul
         if ($existingUser) {
             if ((int) $existingUser->id === (int) $inviter->id) {
                 throw ValidationException::withMessages([
-                    'members' => ['Vous ne pouvez pas vous ajouter comme membre invité.'],
+                    'members' => ['Tu ne peux pas t\'inviter toi-même.'],
                 ]);
             }
 
@@ -771,7 +771,7 @@ return DB::transaction(function () use ($household, $householdUpdateData, $modul
                 'type' => 'household_invite',
                 'title' => 'Invitation de foyer',
                 'body' => sprintf(
-                    '%s vous invite a rejoindre le foyer %s.',
+                    '%s t\'invite a rejoindre le foyer %s.',
                     (string) ($inviter->name ?? 'Un parent'),
                     (string) $household->name
                 ),

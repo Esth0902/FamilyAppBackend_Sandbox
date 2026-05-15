@@ -40,7 +40,7 @@ class HandleTaskTemplateCreatedEffects implements ShouldQueue
             type: 'task_routine_assigned',
             title: 'Nouvelle routine attribuée',
             body: sprintf(
-                'La routine "%s" vous a été attribuée dans le foyer %s.',
+                'La routine "%s" t\'a été attribuée dans le foyer %s.',
                 (string) $template->name,
                 $householdName
             ),
