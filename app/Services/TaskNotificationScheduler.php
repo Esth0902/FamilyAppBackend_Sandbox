@@ -23,7 +23,7 @@ class TaskNotificationScheduler
         $this->processDailyMorningReminders($now, $windowStart);
         $this->processDailyEveningReminders($now, $windowStart);
         $this->processNonDailyEveningReminders($now, $windowStart);
-        $this->processOverdueTasks($now);
+        $this->processOverdueTasks($now, $windowStart);
     }
 
     private function processDailyMorningReminders(Carbon $now, Carbon $windowStart): void
@@ -111,8 +111,14 @@ class TaskNotificationScheduler
             });
     }
 
-    private function processOverdueTasks(Carbon $now): void
+    private function processOverdueTasks(Carbon $now, Carbon $windowStart): void
     {
+        // Les notifications "task_overdue" partent uniquement le matin (09:00),
+        // pas en pleine nuit, afin d'être cohérentes avec le comportement attendu.
+        if (!$this->isWithinTimeWindow($now, $windowStart, '09:00')) {
+            return;
+        }
+
         TaskInstance::query()
             ->with(['template.household.users', 'user', 'assignees'])
             ->whereDate('due_date', '<', $now->toDateString())
