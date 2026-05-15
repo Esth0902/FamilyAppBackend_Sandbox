@@ -30,7 +30,7 @@ class MealPollController extends Controller
         ActiveMealPollRequest $request,
         GetActiveMealPollAction $getActiveMealPollAction,
     ): JsonResponse {
-        $poll = $getActiveMealPollAction->execute($request->household(), $request->user());
+        $poll = $getActiveMealPollAction->execute($request->household());
         return response()->json(['poll' => $poll instanceof MealPoll ? MealPollResource::make($poll)->resolve($request) : null]);
     }
 

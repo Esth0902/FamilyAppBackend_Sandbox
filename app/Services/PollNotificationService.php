@@ -109,12 +109,16 @@ class PollNotificationService
             return;
         }
 
+        $isStillOpen = (string) $poll->status === 'open';
+
         $this->notifyUsers(
             (int) $poll->household_id,
             collect([(int) $parentId]),
             'poll_needs_validation',
-            'Clôture du sondage',
-            'Le sondage est terminé, les plats gagnants doivent être validés.',
+            $isStillOpen ? 'Sondage terminé' : 'Clôture du sondage',
+            $isStillOpen
+                ? 'Le sondage est terminé, clôture-le !'
+                : 'Le sondage est terminé, les plats gagnants doivent maintenant être validés.',
             [
                 'poll_id' => $poll->id,
             ]

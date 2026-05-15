@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Api;
 
+use App\Actions\MealPoll\GetActiveMealPollAction;
 use App\Models\Household;
 use App\Models\MealPoll;
 use App\Models\MealPollOption;
@@ -9,6 +10,7 @@ use App\Models\MealPollVote;
 use App\Models\Recipe;
 use App\Models\User;
 use App\Models\UserNotification;
+use App\Services\PollNotificationScheduler;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -16,6 +18,82 @@ use Tests\TestCase;
 class MealPollApiTest extends TestCase
 {
     use DatabaseTransactions;
+
+    public function test_expired_poll_is_not_closed_automatically_when_fetching_active_poll(): void
+    {
+        $parent = User::factory()->create([
+            'must_change_password' => false,
+        ]);
+
+        $household = Household::query()->create([
+            'name' => 'Foyer test sondage expiré',
+        ]);
+        $household->users()->attach($parent->id, [
+            'role' => User::ROLE_PARENT,
+        ]);
+
+        $poll = MealPoll::query()->create([
+            'household_id' => $household->id,
+            'title' => 'Sondage expiré',
+            'created_by_user_id' => $parent->id,
+            'starts_at' => now()->subHours(6),
+            'ends_at' => now()->subMinutes(30),
+            'planning_start_date' => '2026-03-20',
+            'planning_end_date' => '2026-03-26',
+            'status' => 'open',
+            'max_votes_per_user' => 1,
+        ]);
+
+        $resolvedPoll = app(GetActiveMealPollAction::class)->execute($household);
+
+        $this->assertInstanceOf(MealPoll::class, $resolvedPoll);
+        $this->assertSame((int) $poll->id, (int) $resolvedPoll->id);
+        $this->assertSame('open', (string) $resolvedPoll->status);
+        $this->assertDatabaseHas('meal_polls', [
+            'id' => (int) $poll->id,
+            'status' => 'open',
+        ]);
+    }
+
+    public function test_expired_open_poll_triggers_manual_close_notification_without_auto_closing(): void
+    {
+        $parent = User::factory()->create([
+            'must_change_password' => false,
+        ]);
+
+        $household = Household::query()->create([
+            'name' => 'Foyer rappel clôture manuelle',
+        ]);
+        $household->users()->attach($parent->id, [
+            'role' => User::ROLE_PARENT,
+        ]);
+
+        $poll = MealPoll::query()->create([
+            'household_id' => $household->id,
+            'title' => 'Sondage à clôturer manuellement',
+            'created_by_user_id' => $parent->id,
+            'starts_at' => now()->subHours(10),
+            'ends_at' => now()->subMinutes(10),
+            'planning_start_date' => '2026-03-20',
+            'planning_end_date' => '2026-03-26',
+            'status' => 'open',
+            'max_votes_per_user' => 2,
+            'close_request_sent_at' => null,
+        ]);
+
+        app(PollNotificationScheduler::class)->run();
+
+        $poll->refresh();
+
+        $this->assertSame('open', (string) $poll->status);
+        $this->assertNotNull($poll->close_request_sent_at);
+
+        $this->assertDatabaseHas('user_notifications', [
+            'household_id' => (int) $household->id,
+            'user_id' => (int) $parent->id,
+            'type' => 'poll_needs_validation',
+        ]);
+    }
 
     public function test_closing_poll_notifies_members_who_did_not_vote_with_results_hint(): void
     {

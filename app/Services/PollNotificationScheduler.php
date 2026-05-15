@@ -95,14 +95,16 @@ class PollNotificationScheduler
             ->with('household.users')
             ->chunkById(100, function ($polls) use ($now): void {
                 foreach ($polls as $poll) {
-                    if ($poll->ends_at && $now->greaterThanOrEqualTo($poll->ends_at)) {
-                        $poll->update([
-                            'status' => 'closed',
-                            'closed_at' => $poll->closed_at ?? $now,
-                        ]);
-                        $poll->refresh();
+                    if (
+                        $poll->ends_at
+                        && $now->greaterThanOrEqualTo($poll->ends_at)
+                        && is_null($poll->close_request_sent_at)
+                    ) {
+                        // Le sondage reste ouvert tant qu'un parent ne le clôture pas manuellement.
+                        // On envoie seulement un rappel de clôture manuelle.
                         $poll->loadMissing('household.users');
-                        $this->notificationService->notifyPollClosedTooLate($poll);
+                        $this->notificationService->notifyPollNeedsValidation($poll);
+                        $poll->update(['close_request_sent_at' => $now]);
                         continue;
                     }
 
