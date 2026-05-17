@@ -19,6 +19,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'verified' => \App\Http\Middleware\EnsureEmailIsVerified::class,
             'must.change.password' => \App\Http\Middleware\EnsureInitialPasswordChanged::class,
+            'legal.acceptance' => \App\Http\Middleware\EnsureLegalAcceptanceUpToDate::class,
             'household.context' => \App\Http\Middleware\EnsureHouseholdContext::class,
         ]);
 

@@ -4,13 +4,15 @@ namespace App\Actions\Auth;
 
 use App\Models\User;
 use App\Services\LegalAcceptanceService;
+use App\Services\LegalDocumentVersionService;
 use Illuminate\Http\Request;
-use Illuminate\Validation\Rules\Password;
+use Illuminate\Validation\ValidationException;
 
-class ChangeInitialCredentialsAction
+class AcceptLegalDocumentsAction
 {
     public function __construct(
-        private readonly LegalAcceptanceService $legalAcceptanceService
+        private readonly LegalAcceptanceService $legalAcceptanceService,
+        private readonly LegalDocumentVersionService $legalDocumentVersionService
     ) {
     }
 
@@ -23,56 +25,50 @@ class ChangeInitialCredentialsAction
         $user = $request->user();
 
         $request->merge([
-            'email' => $this->normalizeEmailInput($request->input('email')),
             'cgu_version' => $this->normalizeVersionInput($request->input('cgu_version')),
             'privacy_policy_version' => $this->normalizeVersionInput($request->input('privacy_policy_version')),
         ]);
 
         $validated = $request->validate([
-            'email' => ['required', 'email', 'max:255', 'unique:users,email,' . $user->id],
-            'password' => ['required', 'confirmed', Password::min(8)],
             'accept_legal_terms' => ['accepted'],
             'cgu_version' => ['required', 'string', 'max:50'],
             'privacy_policy_version' => ['nullable', 'string', 'max:50'],
         ], [
-            'email.unique' => "Cet e-mail est déjà utilisé.",
             'accept_legal_terms.accepted' => "L'acceptation des conditions est obligatoire.",
         ]);
 
-        $user->forceFill([
-            'email' => $validated['email'],
-            'password' => $validated['password'],
-            'must_change_password' => false,
-        ])->save();
+        $latestVersions = $this->legalDocumentVersionService->latestVersions();
+        $resolvedPrivacyVersion = isset($validated['privacy_policy_version'])
+            ? (string) $validated['privacy_policy_version']
+            : (string) $validated['cgu_version'];
+
+        if (
+            (string) $validated['cgu_version'] !== $latestVersions['cgu']
+            || $resolvedPrivacyVersion !== $latestVersions['privacy_policy']
+        ) {
+            throw ValidationException::withMessages([
+                'cgu_version' => 'La version fournie ne correspond plus à la version en vigueur.',
+            ]);
+        }
 
         $this->legalAcceptanceService->recordAcceptances(
             $user,
             (string) $validated['cgu_version'],
-            isset($validated['privacy_policy_version']) ? (string) $validated['privacy_policy_version'] : null
+            $resolvedPrivacyVersion
         );
 
         return [
             'status' => 200,
             'payload' => [
-                'message' => 'Identifiants mis à jour.',
+                'message' => 'Conditions mises à jour avec succès.',
                 'user' => $user->fresh()->load('households'),
             ],
         ];
     }
 
-    private function normalizeEmailInput(mixed $value): ?string
-    {
-        if (!is_string($value)) {
-            return null;
-        }
-
-        $normalized = mb_strtolower(trim($value));
-        return $normalized !== '' ? $normalized : null;
-    }
-
     private function normalizeVersionInput(mixed $value): ?string
     {
-        if (!is_string($value)) {
+        if (! is_string($value)) {
             return null;
         }
 
@@ -80,3 +76,4 @@ class ChangeInitialCredentialsAction
         return $normalized !== '' ? $normalized : null;
     }
 }
+

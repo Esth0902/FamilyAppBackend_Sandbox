@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Actions\Auth\AcceptLegalDocumentsAction;
 use App\Actions\Auth\ChangeInitialCredentialsAction;
 use App\Actions\Auth\DeleteAccountAction;
 use App\Actions\Auth\ForgotPasswordAction;
@@ -59,6 +60,12 @@ class AuthController extends Controller
     }
 
     public function changeInitialCredentials(Request $request, ChangeInitialCredentialsAction $action): JsonResponse
+    {
+        $result = $action->execute($request);
+        return response()->json(JsonUtf8Sanitizer::sanitize($result['payload']), (int) $result['status']);
+    }
+
+    public function acceptLegalDocuments(Request $request, AcceptLegalDocumentsAction $action): JsonResponse
     {
         $result = $action->execute($request);
         return response()->json(JsonUtf8Sanitizer::sanitize($result['payload']), (int) $result['status']);

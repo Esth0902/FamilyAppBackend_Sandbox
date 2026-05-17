@@ -30,7 +30,7 @@ Broadcast::routes([
     'middleware' => ['auth:sanctum', 'throttle:broadcast', 'must.change.password'],
 ]);
 
-Route::middleware(['auth:sanctum', 'throttle:api', 'must.change.password'])->group(function (): void {
+Route::middleware(['auth:sanctum', 'throttle:api', 'must.change.password', 'legal.acceptance'])->group(function (): void {
     Route::get('/user', function (Request $request) {
         return $request->user();
     });
@@ -41,6 +41,7 @@ Route::middleware(['auth:sanctum', 'throttle:api', 'must.change.password'])->gro
 
     Route::prefix('auth')->group(function (): void {
         Route::post('/change-initial-credentials', [AuthController::class, 'changeInitialCredentials']);
+        Route::post('/accept-legal-documents', [AuthController::class, 'acceptLegalDocuments']);
         Route::patch('/profile', [AuthController::class, 'updateProfile']);
         Route::delete('/account', [AuthController::class, 'destroyAccount']);
         Route::patch('/households/{household}/nickname', [AuthController::class, 'updateHouseholdNickname']);

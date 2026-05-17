@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class User extends Authenticatable
 {
@@ -26,6 +27,10 @@ class User extends Authenticatable
         'password',
         'is_admin',
         'must_change_password',
+        'accepted_cgu_version',
+        'accepted_cgu_at',
+        'accepted_privacy_policy_version',
+        'accepted_privacy_policy_at',
     ];
 
     /**
@@ -50,6 +55,8 @@ class User extends Authenticatable
             'password' => 'hashed',
             'is_admin' => 'boolean',
             'must_change_password' => 'boolean',
+            'accepted_cgu_at' => 'datetime',
+            'accepted_privacy_policy_at' => 'datetime',
         ];
     }
 
@@ -99,6 +106,11 @@ class User extends Authenticatable
     public function pushTokens()
     {
         return $this->hasMany(UserPushToken::class);
+    }
+
+    public function legalAcceptances(): HasMany
+    {
+        return $this->hasMany(UserLegalAcceptance::class);
     }
 
     public function setEmailAttribute(?string $value): void

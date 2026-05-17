@@ -21,6 +21,9 @@ class RegisterRequest extends FormRequest
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', 'max:255', 'unique:users,email'],
             'password' => ['required', 'confirmed', Password::defaults()],
+            'accept_legal_terms' => ['accepted'],
+            'cgu_version' => ['required', 'string', 'max:50'],
+            'privacy_policy_version' => ['nullable', 'string', 'max:50'],
         ];
     }
 
@@ -31,6 +34,7 @@ class RegisterRequest extends FormRequest
     {
         return [
             'email.unique' => "Cet e-mail est déjà utilisé.",
+            'accept_legal_terms.accepted' => "L'acceptation des conditions est obligatoire.",
         ];
     }
 
@@ -38,6 +42,8 @@ class RegisterRequest extends FormRequest
     {
         $this->merge([
             'email' => $this->normalizeEmailInput($this->input('email')),
+            'cgu_version' => $this->normalizeVersionInput($this->input('cgu_version')),
+            'privacy_policy_version' => $this->normalizeVersionInput($this->input('privacy_policy_version')),
         ]);
     }
 
@@ -48,6 +54,16 @@ class RegisterRequest extends FormRequest
         }
 
         $normalized = mb_strtolower(trim($value));
+        return $normalized !== '' ? $normalized : null;
+    }
+
+    private function normalizeVersionInput(mixed $value): ?string
+    {
+        if (! is_string($value)) {
+            return null;
+        }
+
+        $normalized = trim($value);
         return $normalized !== '' ? $normalized : null;
     }
 }

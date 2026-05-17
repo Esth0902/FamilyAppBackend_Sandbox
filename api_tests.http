@@ -15,7 +15,10 @@ Accept: application/json
     "name": "userTest",
     "email": "user@test.com",
     "password": "password123",
-    "password_confirmation": "password123"
+    "password_confirmation": "password123",
+    "accept_legal_terms": true,
+    "cgu_version": "2026-05-17",
+    "privacy_policy_version": "2026-05-17"
 }
 
 > {%
@@ -65,7 +68,23 @@ Authorization: Bearer {{auth_token}}
 {
   "email": "nouveau.email@test.com",
   "password": "NouveauPass123!",
-  "password_confirmation": "NouveauPass123!"
+  "password_confirmation": "NouveauPass123!",
+  "accept_legal_terms": true,
+  "cgu_version": "2026-05-17",
+  "privacy_policy_version": "2026-05-17"
+}
+
+### Accepter une mise à jour des conditions (utilisateur déjà existant)
+# Endpoint autorisé même si l'API répond "cgu_update_required" sur les autres routes protégées.
+POST {{baseUrl}}/api/auth/accept-legal-documents
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+Authorization: Bearer {{auth_token}}
+
+{
+  "accept_legal_terms": true,
+  "cgu_version": "2026-05-17",
+  "privacy_policy_version": "2026-05-17"
 }
 
 ### Mot de passe oublie (API mobile)

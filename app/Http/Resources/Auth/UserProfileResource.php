@@ -51,6 +51,14 @@ class UserProfileResource extends JsonResource
             'updated_at' => optional($this->updated_at)->toIso8601String(),
             'household_id' => $activeHouseholdId,
             'households' => $serializedHouseholds,
+            'legal_acceptance' => [
+                'cgu_version' => $this->accepted_cgu_version ? (string) $this->accepted_cgu_version : null,
+                'cgu_accepted_at' => optional($this->accepted_cgu_at)->toIso8601String(),
+                'privacy_policy_version' => $this->accepted_privacy_policy_version
+                    ? (string) $this->accepted_privacy_policy_version
+                    : null,
+                'privacy_policy_accepted_at' => optional($this->accepted_privacy_policy_at)->toIso8601String(),
+            ],
         ];
     }
 }
