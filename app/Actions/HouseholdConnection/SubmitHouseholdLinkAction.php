@@ -35,6 +35,7 @@ class SubmitHouseholdLinkAction
             $this->ensureHouseholdCanStartConnectionFlow($requesterHousehold);
 
             /** @var HouseholdLinkCode|null $code */
+            
             $code = HouseholdLinkCode::query()
                 ->where('code', $normalizedCode)
                 ->whereNull('used_at')

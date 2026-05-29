@@ -60,21 +60,21 @@ RÈGLES :
 
         $systemPrompt = $this->getSystemPrompt(
             "Tu es un expert en recettes et en gestion de courses.
-RÈGLES :
-1) Réponds UNIQUEMENT avec un objet JSON valide (aucun texte).
-2) Format :
-{
-  \"title\":\"Nom\",
-  \"type\":\"plat principal\",
-  \"description\":\"...\",
-  \"instructions\":\"...\",
-  \"ingredients\":[{\"name\":\"tomates\",\"quantity\":3,\"unit\":\"pcs\",\"category\":\"fruits et légumes\"}]
-}
-3) type ∈ " . json_encode(self::RECIPE_TYPES, JSON_UNESCAPED_UNICODE) . "
-4) category ∈ " . json_encode(self::INGREDIENT_CATEGORIES, JSON_UNESCAPED_UNICODE) . "
-5) quantity = nombre (int/float). 0 si au goût.
-6) 1 portion, métrique.
-"
+            RÈGLES :
+            1) Réponds UNIQUEMENT avec un objet JSON valide (aucun texte).
+            2) Format :
+            {
+                \"title\":\"Nom\",
+                \"type\":\"plat principal\",
+                \"description\":\"...\",
+                \"instructions\":\"...\",
+                \"ingredients\":[{\"name\":\"tomates\",\"quantity\":3,\"unit\":\"pcs\",\"category\":\"fruits et légumes\"}]
+            }
+            3) type ∈ " . json_encode(self::RECIPE_TYPES, JSON_UNESCAPED_UNICODE) . "
+            4) category ∈ " . json_encode(self::INGREDIENT_CATEGORIES, JSON_UNESCAPED_UNICODE) . "
+            5) quantity = nombre (int/float). 0 si au goût.
+            6) 1 portion, métrique.
+            "
         );
 
         $userPrompt = empty($preferences)
