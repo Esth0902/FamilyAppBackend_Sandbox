@@ -30,7 +30,7 @@ class ChangeInitialCredentialsAction
 
         $validated = $request->validate([
             'email' => ['required', 'email', 'max:255', 'unique:users,email,' . $user->id],
-            'password' => ['required', 'confirmed', Password::min(8)],
+            'password' => ['required', 'confirmed', Password::defaults()],
             'accept_legal_terms' => ['accepted'],
             'cgu_version' => ['required', 'string', 'max:50'],
             'privacy_policy_version' => ['nullable', 'string', 'max:50'],

@@ -29,7 +29,7 @@ class UpdateProfileAction
 
         $validated = $request->validate([
             'email' => ['nullable', 'email', 'max:255', 'unique:users,email,' . $user->id],
-            'password' => ['nullable', 'confirmed', Password::min(8)],
+            'password' => ['nullable', 'confirmed', Password::defaults()],
             'current_password' => ['required_with:email,password', 'string'],
         ], [
             'email.unique' => "Cet e-mail est déjà utilisé.",
