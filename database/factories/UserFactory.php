@@ -28,6 +28,11 @@ class UserFactory extends Factory
             'email' => fake()->unique()->safeEmail(),
             'email_verified_at' => now(),
             'password' => static::$password ??= Hash::make('password'),
+            'must_change_password' => false,
+            'accepted_cgu_version' => (string) config('legal.cgu.version', '2026-05-17'),
+            'accepted_cgu_at' => now(),
+            'accepted_privacy_policy_version' => (string) config('legal.privacy_policy.version', '2026-05-17'),
+            'accepted_privacy_policy_at' => now(),
             'remember_token' => Str::random(10),
         ];
     }
